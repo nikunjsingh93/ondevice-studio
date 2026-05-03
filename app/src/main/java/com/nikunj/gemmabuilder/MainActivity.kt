@@ -1893,7 +1893,7 @@ class BuilderViewModel : ViewModel() {
                 }
                 persistActiveConversation(context, pendingMessages)
 
-                val basePrompt = withContext(Dispatchers.IO) { buildPrompt(context, prompt, pendingMessages) }
+                val basePrompt = withContext(Dispatchers.IO) { buildPrompt(context, prompt, pendingMessages, userMessage.attachments) }
                 var responseText = ""
                 var actions: List<WriteFileAction> = emptyList()
                 var assistantReply: String? = null
@@ -2177,10 +2177,15 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
         }
     }
 
-    private fun buildPrompt(context: Context, userRequest: String, messages: List<ChatMessage>): String {
+    private fun buildPrompt(
+        context: Context,
+        userRequest: String,
+        messages: List<ChatMessage>,
+        preferredAttachmentPaths: List<String> = emptyList()
+    ): String {
         val root = activeProjectRoot(context)
         val current = htmlContextForModel(File(root, "index.html").takeIf { it.exists() }?.readText().orEmpty())
-        val fileContext = buildProjectContextForModel(context, root)
+        val fileContext = buildProjectContextForModel(context, root, preferredAttachmentPaths)
         val recent = messages.takeLast(8).joinToString("\n") { msg ->
             "${msg.role}: ${msg.text.take(1000)}"
         }
@@ -2657,12 +2662,15 @@ if ('serviceWorker' in navigator) {
     }
 }
 
-private fun buildProjectContextForModel(context: Context, root: File): String {
+private fun buildProjectContextForModel(
+    context: Context,
+    root: File,
+    preferredPaths: List<String> = emptyList()
+): String {
     val files = root.walkTopDown()
         .filter { it.isFile }
         .map { it.relativeTo(root).path.replace('\\', '/') to it }
         .filter { (path, _) -> !path.equals("index.html", ignoreCase = true) }
-        .sortedBy { it.first }
         .toList()
 
     if (files.isEmpty()) return "(none)"
@@ -2681,7 +2689,26 @@ private fun buildProjectContextForModel(context: Context, root: File): String {
         out.appendLine("<<<END_FILE>>>")
     }
 
-    files.forEach { (path, file) ->
+    val preferredNormalized = preferredPaths
+        .map { it.replace('\\', '/').trim().trimStart('/') }
+        .filter { it.isNotBlank() }
+    val preferredSet = preferredNormalized.toSet()
+    val preferredFiles = preferredNormalized.mapNotNull { wanted ->
+        files.firstOrNull { (path, _) -> path.equals(wanted, ignoreCase = true) }
+    }
+    val remainingFiles = files
+        .filterNot { (path, _) -> preferredSet.any { it.equals(path, ignoreCase = true) } }
+        .sortedBy { it.first }
+    val orderedFiles = preferredFiles + remainingFiles
+
+    if (preferredFiles.isNotEmpty()) {
+        appendFile(
+            "_meta/current_attachments.txt",
+            "Prioritize these current user attachments first:\n" + preferredFiles.joinToString("\n") { "- ${it.first}" }
+        )
+    }
+
+    orderedFiles.forEach { (path, file) ->
         if (out.length >= maxTotalChars) return@forEach
         val ext = path.substringAfterLast('.', "").lowercase(Locale.US)
         when {
@@ -2721,13 +2748,45 @@ private fun isImageExtension(ext: String): Boolean = ext in setOf(
 
 private fun extractTextFromImageWithOcr(file: File): String {
     return runCatching {
-        val bitmap = decodeScaledBitmap(file.absolutePath, maxSide = 1600) ?: return@runCatching ""
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        val image = InputImage.fromBitmap(bitmap, 0)
-        val result = Tasks.await(recognizer.process(image))
+        val candidates = listOf(3200, 2400, 1600)
+            .mapNotNull { maxSide -> decodeScaledBitmap(file.absolutePath, maxSide = maxSide) }
+
+        var best = ""
+        candidates.forEach { bitmap ->
+            val direct = Tasks.await(recognizer.process(InputImage.fromBitmap(bitmap, 0))).text.trim()
+            if (direct.length > best.length) best = direct
+
+            // Fallback pass for screenshots where text contrast is low.
+            val enhanced = enhanceBitmapForOcr(bitmap)
+            val enhancedText = Tasks.await(recognizer.process(InputImage.fromBitmap(enhanced, 0))).text.trim()
+            if (enhancedText.length > best.length) best = enhancedText
+        }
         recognizer.close()
-        result.text.trim()
+        best
     }.getOrDefault("")
+}
+
+private fun enhanceBitmapForOcr(source: Bitmap): Bitmap {
+    val width = source.width
+    val height = source.height
+    val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val pixels = IntArray(width * height)
+    source.getPixels(pixels, 0, width, 0, 0, width, height)
+
+    for (i in pixels.indices) {
+        val c = pixels[i]
+        val r = android.graphics.Color.red(c)
+        val g = android.graphics.Color.green(c)
+        val b = android.graphics.Color.blue(c)
+        val luma = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
+        val boosted = ((luma - 128) * 1.5f + 128).toInt().coerceIn(0, 255)
+        val mono = if (boosted >= 140) 255 else 0
+        pixels[i] = android.graphics.Color.argb(255, mono, mono, mono)
+    }
+
+    out.setPixels(pixels, 0, width, 0, 0, width, height)
+    return out
 }
 
 private fun extractTextFromPdf(file: File): String {
