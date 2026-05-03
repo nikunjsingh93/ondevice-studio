@@ -326,8 +326,7 @@ fun MainBuilderContent(
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
             onToggleSidebar = onToggleSidebar,
-            onImportModel = onImportModel,
-            onImportFiles = onImportFiles
+            onImportModel = onImportModel
         )
         Spacer(Modifier.height(10.dp))
         if (compact) {
@@ -430,8 +429,7 @@ fun Header(
     themeMode: String,
     onThemeModeChange: (String) -> Unit,
     onToggleSidebar: () -> Unit,
-    onImportModel: () -> Unit,
-    onImportFiles: () -> Unit
+    onImportModel: () -> Unit
 ) {
     var settingsOpen by remember { mutableStateOf(false) }
     Surface(
@@ -493,10 +491,6 @@ fun Header(
                     DropdownMenuItem(
                         text = { Text(if (state.modelReady) "Change model" else "Import model") },
                         onClick = { settingsOpen = false; onImportModel() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Import files") },
-                        onClick = { settingsOpen = false; onImportFiles() }
                     )
                     DropdownMenuItem(
                         text = { Text(if (themeMode == "system") "✓ System theme" else "System theme") },
@@ -797,28 +791,27 @@ fun codeTextForDisplay(state: BuilderUiState): String {
 }
 
 fun extractStreamingCode(text: String): String {
-    val parsed = parseWriteFileActions(text)
-    if (parsed.isNotEmpty()) {
-        val body = parsed.joinToString("\n\n") { action ->
-            "=== ${action.path} ===\n${action.content.trim()}"
-        }
-        return body.ifBlank { text.trim() }
+    val entries = mutableListOf<WriteFileAction>()
+    val actionStartRegex = Regex("""<action\s+name=["']write_file["']>""", RegexOption.IGNORE_CASE)
+    val actionMatches = actionStartRegex.findAll(text).toList()
+    for (i in actionMatches.indices) {
+        val start = actionMatches[i].range.first
+        val endExclusive = if (i + 1 < actionMatches.size) actionMatches[i + 1].range.first else text.length
+        val chunk = text.substring(start, endExclusive)
+        val pathMatch = Regex("<path>(.*?)</path>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(chunk)
+        val rawPath = pathMatch?.groupValues?.getOrNull(1)?.trim().orEmpty().ifBlank { "index.html" }
+        val contentStart = chunk.indexOf("<content>", ignoreCase = true)
+        if (contentStart < 0) continue
+        val payloadStart = contentStart + "<content>".length
+        val contentEnd = chunk.indexOf("</content>", startIndex = payloadStart, ignoreCase = true)
+        val payload = if (contentEnd >= 0) chunk.substring(payloadStart, contentEnd) else chunk.substring(payloadStart)
+        entries.add(WriteFileAction(path = rawPath, content = payload.trimEnd()))
     }
 
-    // Fallback for in-progress streaming when tags are not complete yet.
-    val pathMatch = Regex("<path>(.*?)</path>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-        .findAll(text)
-        .lastOrNull()
-    val inFlightPath = pathMatch?.groupValues?.getOrNull(1)?.trim().orEmpty().ifBlank { "in-progress file" }
-    val contentStart = text.lastIndexOf("<content>", ignoreCase = true)
-    if (contentStart >= 0) {
-        val start = contentStart + "<content>".length
-        val contentEnd = text.indexOf("</content>", startIndex = start, ignoreCase = true)
-        val content = if (contentEnd >= 0) text.substring(start, contentEnd) else text.substring(start)
-        val trimmed = content.trim()
-        if (trimmed.isNotBlank()) {
-            return "=== $inFlightPath ===\n$trimmed"
-        }
+    if (entries.isNotEmpty()) {
+        return entries.joinToString("\n\n") { action ->
+            "=== ${action.path} ===\n${action.content.trimStart()}"
+        }.ifBlank { text.trim() }
     }
     return text.trim()
 }
