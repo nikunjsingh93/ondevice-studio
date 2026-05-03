@@ -213,9 +213,9 @@ fun BuilderApp(
         onResult = { uri -> if (uri != null) vm.importModel(context.applicationContext, uri) }
     )
 
-    val htmlPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-        onResult = { uri -> if (uri != null) vm.importHtmlBase(context.applicationContext, uri) }
+    val fileImporter = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments(),
+        onResult = { uris -> if (uris.isNotEmpty()) vm.importFiles(context.applicationContext, uris) }
     )
 
     var pendingExportPath by remember { mutableStateOf<String?>(null) }
@@ -257,12 +257,13 @@ fun BuilderApp(
                 onThemeModeChange = onThemeModeChange,
                 onToggleSidebar = { vm.toggleSidebar() },
                 onImportModel = { modelPicker.launch(arrayOf("*/*")) },
-                onImportHtml = { htmlPicker.launch(arrayOf("text/html", "application/xhtml+xml", "text/*", "*/*")) },
+                onImportFiles = { fileImporter.launch(arrayOf("*/*")) },
                 onPromptChange = vm::setPrompt,
                 onGenerate = { vm.generate(context.applicationContext) },
                 onTab = vm::setTab,
                 onRefresh = { vm.reloadPreview() },
                 onToggleFullscreen = { vm.togglePreviewFullscreen() },
+                onOpenFileInCode = { relativePath -> vm.openFileInCode(context.applicationContext, relativePath) },
                 onSaveFile = { relativePath ->
                     pendingExportPath = relativePath
                     fileSaver.launch(relativePath.substringAfterLast('/'))
@@ -305,12 +306,13 @@ fun MainBuilderContent(
     onThemeModeChange: (String) -> Unit,
     onToggleSidebar: () -> Unit,
     onImportModel: () -> Unit,
-    onImportHtml: () -> Unit,
+    onImportFiles: () -> Unit,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
     onTab: (Int) -> Unit,
     onRefresh: () -> Unit,
     onToggleFullscreen: () -> Unit,
+    onOpenFileInCode: (String) -> Unit,
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit,
     onOpenBrowser: () -> Unit
@@ -325,7 +327,7 @@ fun MainBuilderContent(
             onThemeModeChange = onThemeModeChange,
             onToggleSidebar = onToggleSidebar,
             onImportModel = onImportModel,
-            onImportHtml = onImportHtml
+            onImportFiles = onImportFiles
         )
         Spacer(Modifier.height(10.dp))
         if (compact) {
@@ -351,6 +353,8 @@ fun MainBuilderContent(
                     onTab = onTab,
                     onRefresh = onRefresh,
                     onToggleFullscreen = onToggleFullscreen,
+                    onImportFiles = onImportFiles,
+                    onOpenFileInCode = onOpenFileInCode,
                     onSaveFile = onSaveFile,
                     onSaveZip = onSaveZip,
                     onOpenBrowser = onOpenBrowser
@@ -377,6 +381,8 @@ fun MainBuilderContent(
                     onTab = onTab,
                     onRefresh = onRefresh,
                     onToggleFullscreen = onToggleFullscreen,
+                    onImportFiles = onImportFiles,
+                    onOpenFileInCode = onOpenFileInCode,
                     onSaveFile = onSaveFile,
                     onSaveZip = onSaveZip,
                     onOpenBrowser = onOpenBrowser
@@ -425,7 +431,7 @@ fun Header(
     onThemeModeChange: (String) -> Unit,
     onToggleSidebar: () -> Unit,
     onImportModel: () -> Unit,
-    onImportHtml: () -> Unit
+    onImportFiles: () -> Unit
 ) {
     var settingsOpen by remember { mutableStateOf(false) }
     Surface(
@@ -489,8 +495,8 @@ fun Header(
                         onClick = { settingsOpen = false; onImportModel() }
                     )
                     DropdownMenuItem(
-                        text = { Text("Import HTML as base") },
-                        onClick = { settingsOpen = false; onImportHtml() }
+                        text = { Text("Import files") },
+                        onClick = { settingsOpen = false; onImportFiles() }
                     )
                     DropdownMenuItem(
                         text = { Text(if (themeMode == "system") "✓ System theme" else "System theme") },
@@ -791,14 +797,27 @@ fun codeTextForDisplay(state: BuilderUiState): String {
 }
 
 fun extractStreamingCode(text: String): String {
-    val contentStart = text.indexOf("<content>", ignoreCase = true)
+    val parsed = parseWriteFileActions(text)
+    if (parsed.isNotEmpty()) {
+        val body = parsed.joinToString("\n\n") { action ->
+            "=== ${action.path} ===\n${action.content.trim()}"
+        }
+        return body.ifBlank { text.trim() }
+    }
+
+    // Fallback for in-progress streaming when tags are not complete yet.
+    val pathMatch = Regex("<path>(.*?)</path>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        .findAll(text)
+        .lastOrNull()
+    val inFlightPath = pathMatch?.groupValues?.getOrNull(1)?.trim().orEmpty().ifBlank { "in-progress file" }
+    val contentStart = text.lastIndexOf("<content>", ignoreCase = true)
     if (contentStart >= 0) {
         val start = contentStart + "<content>".length
         val contentEnd = text.indexOf("</content>", startIndex = start, ignoreCase = true)
-        return if (contentEnd >= 0) {
-            text.substring(start, contentEnd).trim()
-        } else {
-            text.substring(start).trim()
+        val content = if (contentEnd >= 0) text.substring(start, contentEnd) else text.substring(start)
+        val trimmed = content.trim()
+        if (trimmed.isNotBlank()) {
+            return "=== $inFlightPath ===\n$trimmed"
         }
     }
     return text.trim()
@@ -811,6 +830,8 @@ fun WorkPanel(
     onTab: (Int) -> Unit,
     onRefresh: () -> Unit,
     onToggleFullscreen: () -> Unit,
+    onImportFiles: () -> Unit,
+    onOpenFileInCode: (String) -> Unit,
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit,
     onOpenBrowser: () -> Unit
@@ -876,7 +897,13 @@ fun WorkPanel(
             when (state.tab) {
                 0 -> PreviewPane(state)
                 1 -> CodePane(state)
-                else -> FilesPane(state, onSaveFile = onSaveFile, onSaveZip = onSaveZip)
+                else -> FilesPane(
+                    state,
+                    onImportFiles = onImportFiles,
+                    onOpenFileInCode = onOpenFileInCode,
+                    onSaveFile = onSaveFile,
+                    onSaveZip = onSaveZip
+                )
             }
         }
     }
@@ -1021,7 +1048,14 @@ fun PreviewPane(state: BuilderUiState) {
 @Composable
 fun CodePane(state: BuilderUiState) {
     Column(Modifier.fillMaxSize().padding(12.dp)) {
-        Text(if (state.isBusy && state.streamingCode.isNotBlank()) "Streaming generated code..." else "Preview entry file", fontWeight = FontWeight.Bold)
+        Text(
+            if (state.isBusy && state.streamingCode.isNotBlank()) {
+                "Streaming generated code..."
+            } else {
+                "Code: ${state.selectedCodePath}"
+            },
+            fontWeight = FontWeight.Bold
+        )
         if (state.lastWrittenPaths.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             Text(
@@ -1039,7 +1073,13 @@ fun CodePane(state: BuilderUiState) {
 }
 
 @Composable
-fun FilesPane(state: BuilderUiState, onSaveFile: (String) -> Unit, onSaveZip: () -> Unit) {
+fun FilesPane(
+    state: BuilderUiState,
+    onImportFiles: () -> Unit,
+    onOpenFileInCode: (String) -> Unit,
+    onSaveFile: (String) -> Unit,
+    onSaveZip: () -> Unit
+) {
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1054,6 +1094,7 @@ fun FilesPane(state: BuilderUiState, onSaveFile: (String) -> Unit, onSaveZip: ()
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            OutlinedButton(onClick = onImportFiles) { Text("Import") }
             OutlinedButton(onClick = onSaveZip, enabled = state.files.isNotEmpty()) { Text("Save ZIP") }
         }
         Spacer(Modifier.height(10.dp))
@@ -1064,7 +1105,16 @@ fun FilesPane(state: BuilderUiState, onSaveFile: (String) -> Unit, onSaveZip: ()
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(file, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
+                    Text(
+                        file,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = isCodeFile(file)) { onOpenFileInCode(file) }
+                    )
+                    if (isCodeFile(file)) {
+                        OutlinedButton(onClick = { onOpenFileInCode(file) }) { Text("Open") }
+                    }
                     Button(onClick = { onSaveFile(file) }) { Text("Save") }
                 }
                 HorizontalDivider()
@@ -1083,6 +1133,19 @@ fun RawPane(state: BuilderUiState) {
             modifier = Modifier.fillMaxSize()
         )
     }
+}
+
+fun isCodeFile(path: String): Boolean {
+    val lower = path.lowercase(Locale.US)
+    return lower.endsWith(".html") ||
+        lower.endsWith(".htm") ||
+        lower.endsWith(".css") ||
+        lower.endsWith(".js") ||
+        lower.endsWith(".mjs") ||
+        lower.endsWith(".json") ||
+        lower.endsWith(".txt") ||
+        lower.endsWith(".md") ||
+        lower.endsWith(".xml")
 }
 
 data class ChatMessage(val role: String, val text: String, val timestamp: Long = System.currentTimeMillis())
@@ -1116,6 +1179,7 @@ data class BuilderUiState(
     val previewVersion: Int = 0,
     val tab: Int = 0,
     val indexHtmlPath: String? = null,
+    val selectedCodePath: String = "index.html",
     val currentCode: String = "",
     val files: List<String> = emptyList(),
     val lastWrittenPaths: List<String> = emptyList(),
@@ -1262,6 +1326,26 @@ class BuilderViewModel : ViewModel() {
         _uiState.update { it.copy(previewFullscreen = !it.previewFullscreen, previewVersion = it.previewVersion + 1) }
     }
 
+    fun openFileInCode(context: Context, relativePath: String) {
+        val result = runCatching {
+            val root = activeProjectRoot(context)
+            val file = safeResolve(root, relativePath)
+            require(file.exists()) { "File does not exist: $relativePath" }
+            val text = file.readText()
+            _uiState.update {
+                it.copy(
+                    selectedCodePath = relativePath,
+                    currentCode = text,
+                    tab = 1,
+                    status = "Opened $relativePath"
+                )
+            }
+        }
+        if (result.isFailure) {
+            _uiState.update { it.copy(status = "Open file failed: ${result.exceptionOrNull()?.message ?: "unknown error"}") }
+        }
+    }
+
     fun importModel(context: Context, uri: Uri) {
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, status = "Importing model into app storage...") }
@@ -1289,16 +1373,19 @@ class BuilderViewModel : ViewModel() {
         }
     }
 
-    fun importHtmlBase(context: Context, uri: Uri) {
+    fun importFiles(context: Context, uris: List<Uri>) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true, status = "Importing HTML into this chat...") }
+            _uiState.update { it.copy(isBusy = true, status = "Importing file(s) into this chat...") }
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     val root = activeProjectRoot(context)
                     root.mkdirs()
-                    context.contentResolver.openInputStream(uri).use { input ->
-                        requireNotNull(input) { "Could not open selected HTML file." }
-                        File(root, "index.html").outputStream().use { output -> input.copyTo(output) }
+                    uris.forEach { uri ->
+                        val name = sanitizeImportedFileName(displayNameForUri(context.contentResolver, uri, fallback = "imported-file"))
+                        context.contentResolver.openInputStream(uri).use { input ->
+                            requireNotNull(input) { "Could not open selected file: $name" }
+                            safeResolve(root, name).outputStream().use { output -> input.copyTo(output) }
+                        }
                     }
                 }
             }
@@ -1307,15 +1394,15 @@ class BuilderViewModel : ViewModel() {
                 if (result.isSuccess) {
                     it.copy(
                         isBusy = false,
-                        status = "Imported HTML as this chat's base. Large files will be shortened before sending to the model.",
+                        status = "Imported ${uris.size} file(s) into this chat workspace.",
                         tab = 0,
                         previewVersion = it.previewVersion + 1,
-                        lastWrittenPaths = listOf("index.html")
+                        lastWrittenPaths = uris.map { uri -> sanitizeImportedFileName(displayNameForUri(context.contentResolver, uri, fallback = "imported-file")) }
                     )
                 } else {
                     it.copy(
                         isBusy = false,
-                        status = "HTML import failed: ${result.exceptionOrNull()?.message ?: "unknown error"}"
+                        status = "File import failed: ${result.exceptionOrNull()?.message ?: "unknown error"}"
                     )
                 }
             }
@@ -1407,7 +1494,7 @@ class BuilderViewModel : ViewModel() {
 $basePrompt
 
 RETRY ATTEMPT $attempt OF $maxAttempts:
-Your previous response was incomplete or not a complete HTML document. Return a shorter, complete, self-contained index.html now. It must include </html>, </content>, and </action>. Do not stream explanations.
+Your previous response was incomplete. Return complete XML write_file action(s) only, with every opened tag properly closed (including </content> and </action>). Do not stream explanations.
                         """.trimIndent()
                     }
 
@@ -1460,9 +1547,9 @@ Your previous response was incomplete or not a complete HTML document. Return a 
 
                 if (actions.isEmpty() || actions.any { !isCompleteEnoughForWriting(it) }) {
                     val message = if (lastError != null) {
-                        "Generation failed after 3 retries. The previous working preview was kept. Try a shorter request or ask for a simpler complete index.html."
+                        "Generation failed after 3 retries. The previous working project was kept. Try a shorter request."
                     } else {
-                        "The model stopped before finishing the HTML after 3 retries. The previous working preview was kept. Try asking for a shorter complete rewrite."
+                        "The model stopped before finishing write actions after 3 retries. The previous working project was kept. Try asking for a shorter complete rewrite."
                     }
                     val finalMessages = uiState.value.messages + ChatMessage("assistant", message)
                     persistActiveConversation(context, finalMessages)
@@ -1490,6 +1577,9 @@ Your previous response was incomplete or not a complete HTML document. Return a 
                     refreshWorkspace(context)
                     val assistantMessage = ChatMessage("assistant", "Updated preview.")
                     val finalMessages = uiState.value.messages + assistantMessage
+                    val preferredPath = actions.firstOrNull { it.path.equals("index.html", ignoreCase = true) }?.path
+                        ?: actions.firstOrNull()?.path
+                        ?: uiState.value.selectedCodePath
                     persistActiveConversation(context, finalMessages)
                     _uiState.update {
                         it.copy(
@@ -1497,6 +1587,7 @@ Your previous response was incomplete or not a complete HTML document. Return a 
                             status = "Wrote ${actions.size} file action(s) and refreshed preview.",
                             previewVersion = it.previewVersion + 1,
                             tab = 0,
+                            selectedCodePath = preferredPath,
                             lastWrittenPaths = actions.map { a -> a.path },
                             lastRawResponse = responseText,
                             streamingCode = "",
@@ -1593,10 +1684,20 @@ Your previous response was incomplete or not a complete HTML document. Return a 
         }
         val index = File(root, "index.html")
         val files = root.walkTopDown().filter { it.isFile }.map { it.relativeTo(root).path }.sorted().toList()
+        val selected = uiState.value.selectedCodePath
+        val selectedFile = runCatching { safeResolve(root, selected) }.getOrNull()
+        val effectivePath = when {
+            selectedFile?.exists() == true -> selected
+            index.exists() -> "index.html"
+            files.isNotEmpty() -> files.first()
+            else -> "index.html"
+        }
+        val current = runCatching { safeResolve(root, effectivePath).readText() }.getOrDefault("")
         _uiState.update {
             it.copy(
                 indexHtmlPath = index.absolutePath,
-                currentCode = if (index.exists()) index.readText() else "",
+                selectedCodePath = effectivePath,
+                currentCode = current,
                 files = files,
                 modelName = savedModelName(context),
                 modelReady = modelFile(context).exists()
@@ -1616,25 +1717,25 @@ $BUILD_SYSTEM_PROMPT
 Recent chat:
 $recent
 
-Current index.html:
+Current index.html (if present):
 ```html
 $current
 ```
 
 Important instructions for this turn:
-- Usually return exactly one write_file action for path index.html.
+- Return one or more write_file action(s) as needed.
 - Never include explanations or markdown before or after the XML action.
 - Never stop inside the XML action. Always finish with </content> and </action>.
 - Keep the generated file compact enough for mobile. Avoid unnecessary comments, huge CSS blocks, or repeated code.
 - Do not put the XML action in a chat message; the app will parse it silently.
 - If the user asks for a completely different app or design, replace the current app completely.
 - Do not preserve the old calculator or previous UI unless the user explicitly asks to keep it.
-- Only create additional files if the user explicitly asks for a multi-file project.
+- You may create multiple files (for example index.html, styles.css, app.js, data.json, assets/*) when useful.
+- If index.html references local files (for example styles.css or app.js), include write_file actions for each referenced file in the same response.
 - Center the generated app/page by default using a full viewport layout such as min-height:100vh and display:grid/place-items:center or flexbox centering.
 - Make the layout responsive for phone screens, avoid fixed desktop-only widths, and use width:min(92vw, ...px) for main cards.
-- Every JavaScript function used by HTML attributes such as onclick must be defined in the same index.html.
-- Avoid referencing missing functions or variables; make the generated app fully runnable offline.
-- If the current HTML contains a GEMMA BUILDER NOTE saying the middle was omitted, still return a complete rewritten index.html instead of patching only the visible fragment.
+- Avoid referencing missing functions or variables; make the generated app fully runnable offline from local files.
+- If editing an existing project, update only the files needed and keep paths relative to the project root.
 
 User request:
 $userRequest
@@ -1878,23 +1979,13 @@ fun cleanGeneratedFileContent(raw: String): String {
 fun normalizeWriteActions(actions: List<WriteFileAction>): List<WriteFileAction> {
     if (actions.isEmpty()) return actions
 
-    val trimmed = actions.map { a ->
-        val normalizedPath = a.path.trim().replace('\\', '/').trimStart('/')
+    return actions.map { a ->
+        var normalizedPath = a.path.trim().replace('\\', '/').trimStart('/').ifBlank { "index.html" }
+        if (normalizedPath.equals("index.htm", ignoreCase = true)) {
+            normalizedPath = "index.html"
+        }
         a.copy(path = normalizedPath)
     }
-
-    val hasIndex = trimmed.any { it.path.equals("index.html", ignoreCase = true) }
-    if (hasIndex) {
-        return trimmed.map { a -> if (a.path.equals("index.html", ignoreCase = true)) a.copy(path = "index.html") else a }
-    }
-
-    val htmlActions = trimmed.filter { it.path.lowercase(Locale.US).endsWith(".html") }
-    if (htmlActions.size == 1) {
-        val chosen = htmlActions.first()
-        return trimmed.map { a -> if (a === chosen) a.copy(path = "index.html") else a }
-    }
-
-    return trimmed
 }
 
 fun isCompleteEnoughForWriting(action: WriteFileAction): Boolean {
@@ -1917,16 +2008,22 @@ fun safeResolve(root: File, relativePath: String): File {
         .split("/")
         .filter { it.isNotBlank() && it != ".." && it != "." }
         .joinToString("/")
-
-    require(clean.endsWith(".html") || clean.endsWith(".css") || clean.endsWith(".js") || clean.endsWith(".json") || clean.endsWith(".txt")) {
-        "Only web project files are allowed. Rejected: $relativePath"
-    }
+    require(clean.isNotBlank()) { "File path cannot be empty." }
 
     val out = File(root, clean)
     val rootPath = root.canonicalPath
     val outPath = out.canonicalPath
     require(outPath.startsWith(rootPath)) { "Invalid path outside project root." }
     return out
+}
+
+fun sanitizeImportedFileName(name: String): String {
+    val normalized = name
+        .replace("\\", "/")
+        .substringAfterLast('/')
+        .trim()
+        .ifBlank { "imported-file" }
+    return normalized.replace(Regex("""[^\w.\- ]"""), "_")
 }
 
 fun writeAction(root: File, action: WriteFileAction) {
@@ -1973,14 +2070,14 @@ fun saveModelName(context: Context, name: String) {
         .apply()
 }
 
-fun displayNameForUri(resolver: ContentResolver, uri: Uri): String {
+fun displayNameForUri(resolver: ContentResolver, uri: Uri, fallback: String = "Gemma model"): String {
     resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
         val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
         if (index >= 0 && cursor.moveToFirst()) {
             return cursor.getString(index).orEmpty()
         }
     }
-    return uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { "Gemma model" } ?: "Gemma model"
+    return uri.lastPathSegment?.substringAfterLast('/')?.ifBlank { fallback } ?: fallback
 }
 
 fun modelFile(context: Context): File = File(context.filesDir, "models/gemma-4-e2b.litertlm")
@@ -2026,18 +2123,17 @@ You MUST respond only with XML actions.
 Allowed action:
 
 <action name="write_file">
-<path>index.html</path>
+<path>relative/path/from/project/root</path>
 <content>
-FULL HTML FILE HERE
+FULL FILE CONTENT HERE
 </content>
 </action>
 
 Rules:
-- Usually create exactly one complete index.html file unless the user explicitly asks otherwise.
-- For edits, rewrite the full index.html file.
+- You may return one or more write_file actions.
+- For edits, update only the needed files.
 - If the user asks for a different app, replace the current app completely.
-- Include CSS inside <style>.
-- Include JavaScript inside <script>.
+- You may use multiple files such as index.html, styles.css, app.js, and assets/*.
 - No external links.
 - No CDN.
 - No remote images.
