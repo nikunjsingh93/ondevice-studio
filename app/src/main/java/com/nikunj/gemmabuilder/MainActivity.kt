@@ -66,6 +66,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -105,6 +107,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.core.content.FileProvider
 import androidx.core.graphics.ColorUtils
 import androidx.webkit.WebSettingsCompat
@@ -1282,6 +1288,24 @@ fun FilesPane(
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit
 ) {
+    var pendingDelete by remember { mutableStateOf<String?>(null) }
+    pendingDelete?.let { file ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete file?") },
+            text = { Text("Delete \"$file\" from this chat workspace?") },
+            confirmButton = {
+                Button(onClick = {
+                    pendingDelete = null
+                    onDeleteFile(file)
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1315,10 +1339,16 @@ fun FilesPane(
                             .clickable(enabled = isCodeFile(file)) { onOpenFileInCode(file) }
                     )
                     if (isCodeFile(file)) {
-                        OutlinedButton(onClick = { onOpenFileInCode(file) }) { Text("↗") }
+                        IconButton(onClick = { onOpenFileInCode(file) }) {
+                            Icon(Icons.Outlined.OpenInNew, contentDescription = "Open file")
+                        }
                     }
-                    OutlinedButton(onClick = { onSaveFile(file) }) { Text("↓") }
-                    OutlinedButton(onClick = { onDeleteFile(file) }) { Text("🗑") }
+                    IconButton(onClick = { onSaveFile(file) }) {
+                        Icon(Icons.Outlined.Download, contentDescription = "Download file")
+                    }
+                    IconButton(onClick = { pendingDelete = file }) {
+                        Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete file")
+                    }
                 }
                 HorizontalDivider()
             }
