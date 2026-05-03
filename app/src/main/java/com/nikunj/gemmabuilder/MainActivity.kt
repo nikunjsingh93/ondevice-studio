@@ -29,6 +29,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -154,6 +155,7 @@ import java.util.zip.ZipOutputStream
 import kotlin.math.max
 
 private const val SAMPLE_PLACEHOLDER = "Build anything..."
+private val ORDERED_LIST_PREFIX = Regex("""^\d+\.\s+""")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -379,6 +381,10 @@ fun MainBuilderContent(
         cutoutStartInsetDp = 0.dp
         cutoutEndInsetDp = 0.dp
     }
+    BackHandler(enabled = compact && !state.workPanelCollapsed && !state.previewFullscreen && !state.sidebarOpen) {
+        onToggleWorkPanelCollapsed()
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -842,10 +848,10 @@ fun MessageBubble(message: ChatMessage, chatFontScale: Float) {
                 .fillMaxWidth()
                 .padding(horizontal = 2.dp, vertical = 2.dp)
         ) {
-            Text(
-                message.text,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale),
-                color = assistantTextColor
+            MarkdownMessageText(
+                text = message.text,
+                fontScale = chatFontScale,
+                textColor = assistantTextColor
             )
             Spacer(Modifier.height(2.dp))
             Text(
@@ -1867,7 +1873,7 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
 
                 if (written.isSuccess) {
                     refreshWorkspace(context)
-                    val assistantText = assistantReply?.takeIf { it.isNotBlank() } ?: "Updated preview."
+                    val assistantText = assistantReply?.takeIf { it.isNotBlank() }?.trim() ?: "Updated preview."
                     val assistantMessage = ChatMessage("assistant", assistantText)
                     val finalMessages = uiState.value.messages + assistantMessage
                     val preferredPath = actions.firstOrNull { it.path.equals("index.html", ignoreCase = true) }?.path
@@ -2244,6 +2250,102 @@ fun recoverAssistantReply(text: String): String? {
         .replace(Regex("""<action\s+name=["']reply["'][\s\S]*?</action>""", RegexOption.IGNORE_CASE), "")
         .trim()
     return stripped.takeIf { it.isNotBlank() && !it.startsWith("<action", ignoreCase = true) }
+}
+
+@Composable
+fun MarkdownMessageText(text: String, fontScale: Float, textColor: Color) {
+    val dark = ColorUtils.calculateLuminance(MaterialTheme.colorScheme.background.toArgb()) < 0.5
+    val codeBg = if (dark) Color(0xFF2B2F37) else Color(0xFFEFF1F4)
+    val inlineCodeBg = if (dark) Color(0xFF3A3F48) else Color(0xFFE8EAEE)
+    val baseStyle = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * fontScale)
+    val codeStyle = baseStyle.copy(fontFamily = FontFamily.Monospace)
+
+    val sections = text.split("```")
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        sections.forEachIndexed { index, segment ->
+            if (index % 2 == 1) {
+                val codeBody = segment.lineSequence().drop(1).joinToString("\n").ifBlank { segment }.trim()
+                if (codeBody.isNotBlank()) {
+                    SelectionContainer {
+                        Text(
+                            text = codeBody,
+                            style = codeStyle,
+                            color = textColor,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(codeBg, MaterialTheme.shapes.small)
+                                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), MaterialTheme.shapes.small)
+                                .padding(10.dp)
+                        )
+                    }
+                }
+            } else {
+                segment.lines().forEach { rawLine ->
+                    val line = rawLine.trimEnd()
+                    if (line.isBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                    } else {
+                        val normalized = when {
+                            line.startsWith("- ") || line.startsWith("* ") -> "• ${line.drop(2)}"
+                            ORDERED_LIST_PREFIX.containsMatchIn(line) -> "• ${ORDERED_LIST_PREFIX.replace(line, "")}"
+                            else -> line
+                        }
+                        Text(
+                            text = parseInlineMarkdown(normalized, baseStyle, textColor, inlineCodeBg),
+                            style = baseStyle,
+                            color = textColor
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun parseInlineMarkdown(
+    text: String,
+    baseStyle: androidx.compose.ui.text.TextStyle,
+    textColor: Color,
+    inlineCodeBg: Color
+): AnnotatedString {
+    val out = Builder()
+    var i = 0
+    while (i < text.length) {
+        when {
+            text.startsWith("**", i) -> {
+                val end = text.indexOf("**", i + 2)
+                if (end > i + 2) {
+                    out.pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = textColor))
+                    out.append(text.substring(i + 2, end))
+                    out.pop()
+                    i = end + 2
+                } else {
+                    out.append(text[i]); i++
+                }
+            }
+            text[i] == '`' -> {
+                val end = text.indexOf('`', i + 1)
+                if (end > i + 1) {
+                    out.pushStyle(
+                        SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            background = inlineCodeBg,
+                            color = textColor
+                        )
+                    )
+                    out.append(text.substring(i + 1, end))
+                    out.pop()
+                    i = end + 1
+                } else {
+                    out.append(text[i]); i++
+                }
+            }
+            else -> {
+                out.append(text[i]); i++
+            }
+        }
+    }
+    return out.toAnnotatedString()
 }
 
 fun recoverContentBlock(text: String): String? {
