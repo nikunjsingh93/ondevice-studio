@@ -122,6 +122,9 @@ import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.text.PDFTextStripper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -287,6 +290,7 @@ fun BuilderApp(
                 onToggleFullscreen = { vm.togglePreviewFullscreen() },
                 onToggleWorkPanelCollapsed = { vm.toggleWorkPanelCollapsed() },
                 onOpenFileInCode = { relativePath -> vm.openFileInCode(context.applicationContext, relativePath) },
+                onDeleteFile = { relativePath -> vm.deleteFile(context.applicationContext, relativePath) },
                 onSaveFile = { relativePath ->
                     pendingExportPath = relativePath
                     fileSaver.launch(relativePath.substringAfterLast('/'))
@@ -346,6 +350,7 @@ fun MainBuilderContent(
     onToggleFullscreen: () -> Unit,
     onToggleWorkPanelCollapsed: () -> Unit,
     onOpenFileInCode: (String) -> Unit,
+    onDeleteFile: (String) -> Unit,
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit
 ) {
@@ -412,6 +417,7 @@ fun MainBuilderContent(
                     onToggleWorkPanelCollapsed = onToggleWorkPanelCollapsed,
                     onImportFiles = onImportFiles,
                     onOpenFileInCode = onOpenFileInCode,
+                    onDeleteFile = onDeleteFile,
                     onSaveFile = onSaveFile,
                     onSaveZip = onSaveZip
                 )
@@ -478,6 +484,7 @@ fun MainBuilderContent(
                         onToggleWorkPanelCollapsed = onToggleWorkPanelCollapsed,
                         onImportFiles = onImportFiles,
                         onOpenFileInCode = onOpenFileInCode,
+                        onDeleteFile = onDeleteFile,
                         onSaveFile = onSaveFile,
                         onSaveZip = onSaveZip
                     )
@@ -999,6 +1006,7 @@ fun WorkPanel(
     onToggleWorkPanelCollapsed: () -> Unit,
     onImportFiles: () -> Unit,
     onOpenFileInCode: (String) -> Unit,
+    onDeleteFile: (String) -> Unit,
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit
 ) {
@@ -1068,6 +1076,7 @@ fun WorkPanel(
                         state,
                         onImportFiles = onImportFiles,
                         onOpenFileInCode = onOpenFileInCode,
+                        onDeleteFile = onDeleteFile,
                         onSaveFile = onSaveFile,
                         onSaveZip = onSaveZip
                     )
@@ -1269,6 +1278,7 @@ fun FilesPane(
     state: BuilderUiState,
     onImportFiles: () -> Unit,
     onOpenFileInCode: (String) -> Unit,
+    onDeleteFile: (String) -> Unit,
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit
 ) {
@@ -1305,9 +1315,10 @@ fun FilesPane(
                             .clickable(enabled = isCodeFile(file)) { onOpenFileInCode(file) }
                     )
                     if (isCodeFile(file)) {
-                        OutlinedButton(onClick = { onOpenFileInCode(file) }) { Text("Open") }
+                        OutlinedButton(onClick = { onOpenFileInCode(file) }) { Text("↗") }
                     }
-                    Button(onClick = { onSaveFile(file) }) { Text("Save") }
+                    OutlinedButton(onClick = { onSaveFile(file) }) { Text("↓") }
+                    OutlinedButton(onClick = { onDeleteFile(file) }) { Text("🗑") }
                 }
                 HorizontalDivider()
             }
@@ -1402,6 +1413,7 @@ class BuilderViewModel : ViewModel() {
     fun prepare(context: Context) {
         if (prepared) return
         prepared = true
+        PDFBoxResourceLoader.init(context.applicationContext)
 
         conversations = loadConversations(context).toMutableList()
         if (conversations.isEmpty()) {
@@ -1554,6 +1566,22 @@ class BuilderViewModel : ViewModel() {
         }
         if (result.isFailure) {
             _uiState.update { it.copy(status = "Open file failed: ${result.exceptionOrNull()?.message ?: "unknown error"}") }
+        }
+    }
+
+    fun deleteFile(context: Context, relativePath: String) {
+        val result = runCatching {
+            val root = activeProjectRoot(context)
+            val file = safeResolve(root, relativePath)
+            require(file.exists()) { "File does not exist: $relativePath" }
+            require(file.delete()) { "Could not delete file: $relativePath" }
+            refreshWorkspace(context)
+        }
+        _uiState.update {
+            it.copy(
+                status = if (result.isSuccess) "Deleted $relativePath" else "Delete failed: ${result.exceptionOrNull()?.message ?: "unknown error"}",
+                previewVersion = if (relativePath.equals("index.html", ignoreCase = true) && result.isSuccess) it.previewVersion + 1 else it.previewVersion
+            )
         }
     }
 
@@ -2303,7 +2331,7 @@ private fun buildProjectContextForModel(context: Context, root: File): String {
                 appendFile(path, text)
             }
             ext == "pdf" -> {
-                val text = extractTextFromPdfWithOcr(file)
+                val text = extractTextFromPdf(file)
                 appendFile(path, if (text.isNotBlank()) text else "(PDF imported. Could not extract text.)")
             }
             isImageExtension(ext) -> {
@@ -2336,6 +2364,25 @@ private fun extractTextFromImageWithOcr(file: File): String {
         val result = Tasks.await(recognizer.process(image))
         recognizer.close()
         result.text.trim()
+    }.getOrDefault("")
+}
+
+private fun extractTextFromPdf(file: File): String {
+    val native = extractTextFromPdfNative(file)
+    if (native.isNotBlank()) return native
+    return extractTextFromPdfWithOcr(file)
+}
+
+private fun extractTextFromPdfNative(file: File): String {
+    return runCatching {
+        PDDocument.load(file).use { doc ->
+            val stripper = PDFTextStripper().apply {
+                sortByPosition = true
+                startPage = 1
+                endPage = minOf(doc.numberOfPages, 25)
+            }
+            stripper.getText(doc).trim()
+        }
     }.getOrDefault("")
 }
 
