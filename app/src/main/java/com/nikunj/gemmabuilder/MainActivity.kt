@@ -1348,7 +1348,7 @@ data class BuilderUiState(
     val streamingCode: String = "",
     val previewFullscreen: Boolean = false,
     val workPanelCollapsed: Boolean = false,
-    val chatFontScale: Float = 1f,
+    val chatFontScale: Float = 1.2f,
     val codeFontScale: Float = 1f
 )
 
@@ -2290,7 +2290,7 @@ fun saveModelName(context: Context, name: String) {
 
 fun savedChatFontScale(context: Context): Float =
     context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-        .getFloat("chatFontScale", 1f)
+        .getFloat("chatFontScale", 1.2f)
         .coerceIn(0.8f, 1.8f)
 
 fun saveChatFontScale(context: Context, scale: Float) {
