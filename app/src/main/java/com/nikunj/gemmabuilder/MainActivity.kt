@@ -148,6 +148,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.Locale
 import java.util.UUID
+import java.util.zip.ZipFile
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.math.max
@@ -2019,6 +2020,8 @@ Additional imported/generated files context:
 $fileContext
 
 Important instructions for this turn:
+- The app has already provided readable content from local imported files above (including extracted text from PDF/image/DOCX when available).
+- Do not say you cannot access local files. Use the provided file context directly.
 - If the user asks a question or asks for explanation only, return one reply action and do not modify files.
 - Return one or more write_file action(s) when file changes are needed.
 - Never include explanations or markdown before or after the XML action.
@@ -2360,6 +2363,10 @@ private fun buildProjectContextForModel(context: Context, root: File): String {
                 val text = runCatching { file.readText() }.getOrDefault("")
                 appendFile(path, text)
             }
+            ext == "docx" -> {
+                val text = extractTextFromDocx(file)
+                appendFile(path, if (text.isNotBlank()) text else "(DOCX imported. Could not extract text.)")
+            }
             ext == "pdf" -> {
                 val text = extractTextFromPdf(file)
                 appendFile(path, if (text.isNotBlank()) text else "(PDF imported. Could not extract text.)")
@@ -2444,6 +2451,32 @@ private fun extractTextFromPdfWithOcr(file: File): String {
             }
         }
     }.getOrDefault("")
+}
+
+private fun extractTextFromDocx(file: File): String {
+    return runCatching {
+        ZipFile(file).use { zip ->
+            val entry = zip.getEntry("word/document.xml") ?: return@use ""
+            val xml = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+            xmlToPlainText(xml).trim()
+        }
+    }.getOrDefault("")
+}
+
+private fun xmlToPlainText(xml: String): String {
+    val withBreaks = xml
+        .replace(Regex("(?i)</w:p>"), "\n")
+        .replace(Regex("(?i)<w:tab\\b[^>]*/>"), "\t")
+        .replace(Regex("(?i)<w:br\\b[^>]*/>"), "\n")
+    return withBreaks
+        .replace(Regex("<[^>]+>"), "")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace(Regex("[ \\t]+"), " ")
+        .replace(Regex("\\n{3,}"), "\n\n")
 }
 
 private fun decodeScaledBitmap(path: String, maxSide: Int): Bitmap? {
@@ -2587,6 +2620,12 @@ You are an offline Android coding agent.
 You build small web apps using HTML, CSS, and JavaScript.
 
 You MUST respond only with XML actions.
+
+The host app may include extracted local file contents in the prompt using markers like:
+<<<FILE:path>>>
+...content...
+<<<END_FILE>>>
+Treat that as authoritative local file content. Do not claim you cannot read local files.
 
 Allowed action:
 
