@@ -265,6 +265,7 @@ fun BuilderApp(
                 onTab = vm::setTab,
                 onRefresh = { vm.reloadPreview() },
                 onToggleFullscreen = { vm.togglePreviewFullscreen() },
+                onToggleWorkPanelCollapsed = { vm.toggleWorkPanelCollapsed() },
                 onOpenFileInCode = { relativePath -> vm.openFileInCode(context.applicationContext, relativePath) },
                 onSaveFile = { relativePath ->
                     pendingExportPath = relativePath
@@ -313,6 +314,7 @@ fun MainBuilderContent(
     onTab: (Int) -> Unit,
     onRefresh: () -> Unit,
     onToggleFullscreen: () -> Unit,
+    onToggleWorkPanelCollapsed: () -> Unit,
     onOpenFileInCode: (String) -> Unit,
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit
@@ -347,11 +349,15 @@ fun MainBuilderContent(
                 WorkPanel(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.52f),
+                        .then(if (state.workPanelCollapsed) Modifier.height(64.dp) else Modifier.weight(0.52f)),
                     state = state,
-                    onTab = onTab,
+                    onTab = { index ->
+                        if (state.workPanelCollapsed) onToggleWorkPanelCollapsed()
+                        onTab(index)
+                    },
                     onRefresh = onRefresh,
                     onToggleFullscreen = onToggleFullscreen,
+                    onToggleWorkPanelCollapsed = onToggleWorkPanelCollapsed,
                     onImportFiles = onImportFiles,
                     onOpenFileInCode = onOpenFileInCode,
                     onSaveFile = onSaveFile,
@@ -376,9 +382,13 @@ fun MainBuilderContent(
                 WorkPanel(
                     modifier = Modifier.fillMaxSize(),
                     state = state,
-                    onTab = onTab,
+                    onTab = { index ->
+                        if (state.workPanelCollapsed) onToggleWorkPanelCollapsed()
+                        onTab(index)
+                    },
                     onRefresh = onRefresh,
                     onToggleFullscreen = onToggleFullscreen,
+                    onToggleWorkPanelCollapsed = onToggleWorkPanelCollapsed,
                     onImportFiles = onImportFiles,
                     onOpenFileInCode = onOpenFileInCode,
                     onSaveFile = onSaveFile,
@@ -414,7 +424,7 @@ fun FullscreenCodePane(state: BuilderUiState) {
             color = MaterialTheme.colorScheme.onBackground
         )
         Spacer(Modifier.height(8.dp))
-        AutoScrollingMonospaceText(
+        AutoScrollingCodeText(
             text = codeTextForDisplay(state),
             modifier = Modifier.fillMaxSize()
         )
@@ -695,24 +705,27 @@ fun MessageBubble(message: ChatMessage) {
     val context = LocalContext.current
     val bg = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val label = if (mine) "You" else "Gemma"
-    val bubbleModifier = if (mine) {
-        Modifier
-            .fillMaxWidth()
-            .combinedClickable(
-                onClick = {},
-                onLongClick = {
-                    clipboard.setText(AnnotatedString(message.text))
-                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                }
-            )
-    } else {
-        Modifier.fillMaxWidth()
-    }
-    Column(
-        modifier = bubbleModifier
-            .background(bg, MaterialTheme.shapes.medium)
-            .padding(10.dp)
-    ) {
+    val bubbleModifier = Modifier
+        .fillMaxWidth(if (mine) 0.60f else 1f)
+        .then(
+            if (mine) {
+                Modifier.combinedClickable(
+                    onClick = {},
+                    onLongClick = {
+                        clipboard.setText(AnnotatedString(message.text))
+                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                    }
+                )
+            } else {
+                Modifier
+            }
+        )
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+        Column(
+            modifier = bubbleModifier
+                .background(bg, MaterialTheme.shapes.medium)
+                .padding(10.dp)
+        ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = label,
@@ -729,6 +742,7 @@ fun MessageBubble(message: ChatMessage) {
         }
         Spacer(Modifier.height(3.dp))
         Text(message.text, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -806,6 +820,9 @@ fun syntaxHighlightCode(text: String): AnnotatedString {
     val attrColor = Color(0xFFFFB74D)
     val stringColor = Color(0xFFE57373)
     val commentColor = Color(0xFF9E9E9E)
+    val cssSelectorColor = Color(0xFFA5D6A7)
+    val cssPropertyColor = Color(0xFF80CBC4)
+    val numberColor = Color(0xFFCE93D8)
 
     val out = Builder(text)
     fun apply(regex: Regex, style: SpanStyle) {
@@ -819,6 +836,9 @@ fun syntaxHighlightCode(text: String): AnnotatedString {
     apply(Regex("""</?[A-Za-z][^>\s/]*"""), SpanStyle(color = tagColor))
     apply(Regex("""\s[A-Za-z_:][-A-Za-z0-9_:.]*(?=\=)"""), SpanStyle(color = attrColor))
     apply(Regex(""""([^"\\\\]|\\\\.)*"|'([^'\\\\]|\\\\.)*'"""), SpanStyle(color = stringColor))
+    apply(Regex("""(?m)^[ \t]*([.#]?[A-Za-z][A-Za-z0-9_\-]*(?:\s*[>+~]\s*[.#]?[A-Za-z][A-Za-z0-9_\-]*)*)\s*\{"""), SpanStyle(color = cssSelectorColor, fontWeight = FontWeight.Medium))
+    apply(Regex("""(?m)\b([a-zA-Z-]+)\s*:"""), SpanStyle(color = cssPropertyColor))
+    apply(Regex("""#[0-9a-fA-F]{3,8}\b|\b\d+(\.\d+)?(px|em|rem|vh|vw|%|ms|s|deg)?\b"""), SpanStyle(color = numberColor))
     apply(Regex("""\b(function|const|let|var|return|if|else|for|while|class|new|import|export|from|async|await|true|false|null|undefined)\b"""), SpanStyle(color = keywordColor, fontWeight = FontWeight.SemiBold))
     return out.toAnnotatedString()
 }
@@ -864,6 +884,7 @@ fun WorkPanel(
     onTab: (Int) -> Unit,
     onRefresh: () -> Unit,
     onToggleFullscreen: () -> Unit,
+    onToggleWorkPanelCollapsed: () -> Unit,
     onImportFiles: () -> Unit,
     onOpenFileInCode: (String) -> Unit,
     onSaveFile: (String) -> Unit,
@@ -895,6 +916,13 @@ fun WorkPanel(
                         .clickable { onToggleFullscreen() },
                     contentAlignment = Alignment.Center
                 ) { Text("⛶", fontWeight = FontWeight.Bold) }
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small)
+                        .clickable { onToggleWorkPanelCollapsed() },
+                    contentAlignment = Alignment.Center
+                ) { Text(if (state.workPanelCollapsed) "▴" else "▾", fontWeight = FontWeight.Bold) }
                 Box(modifier = Modifier.weight(1f)) {
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -918,16 +946,18 @@ fun WorkPanel(
                 }
             }
 
-            when (state.tab) {
-                0 -> PreviewPane(state)
-                1 -> CodePane(state)
-                else -> FilesPane(
-                    state,
-                    onImportFiles = onImportFiles,
-                    onOpenFileInCode = onOpenFileInCode,
-                    onSaveFile = onSaveFile,
-                    onSaveZip = onSaveZip
-                )
+            if (!state.workPanelCollapsed) {
+                when (state.tab) {
+                    0 -> PreviewPane(state)
+                    1 -> CodePane(state)
+                    else -> FilesPane(
+                        state,
+                        onImportFiles = onImportFiles,
+                        onOpenFileInCode = onOpenFileInCode,
+                        onSaveFile = onSaveFile,
+                        onSaveZip = onSaveZip
+                    )
+                }
             }
         }
     }
@@ -1209,7 +1239,8 @@ data class BuilderUiState(
     val lastWrittenPaths: List<String> = emptyList(),
     val lastRawResponse: String = "",
     val streamingCode: String = "",
-    val previewFullscreen: Boolean = false
+    val previewFullscreen: Boolean = false,
+    val workPanelCollapsed: Boolean = false
 )
 
 data class WriteFileAction(val path: String, val content: String)
@@ -1348,6 +1379,10 @@ class BuilderViewModel : ViewModel() {
 
     fun togglePreviewFullscreen() {
         _uiState.update { it.copy(previewFullscreen = !it.previewFullscreen, previewVersion = it.previewVersion + 1) }
+    }
+
+    fun toggleWorkPanelCollapsed() {
+        _uiState.update { it.copy(workPanelCollapsed = !it.workPanelCollapsed) }
     }
 
     fun openFileInCode(context: Context, relativePath: String) {
