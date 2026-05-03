@@ -5,7 +5,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Gemma Builder MVP"
+        android:label="Gemma Builder"
         android:supportsRtl="true"
         android:theme="@style/Theme.GemmaBuilder">
 

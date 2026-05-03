@@ -2059,7 +2059,7 @@ fun welcomeHtml(): String = """
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Gemma Builder MVP</title>
+<title>Gemma Builder</title>
 <style>
   body { margin:0; min-height:100vh; font-family:system-ui,sans-serif; background:linear-gradient(135deg,#111827,#4338ca); color:white; display:grid; place-items:center; }
   .card { width:min(92vw,680px); background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); border-radius:28px; padding:28px; box-shadow:0 30px 80px rgba(0,0,0,.35); }
