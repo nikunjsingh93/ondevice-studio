@@ -88,6 +88,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString.Builder
@@ -96,6 +98,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
@@ -337,9 +340,28 @@ fun MainBuilderContent(
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit
 ) {
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val view = LocalView.current
+    val cutoutStartInsetDp: Dp
+    val cutoutEndInsetDp: Dp
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+        val cutout = view.rootWindowInsets?.displayCutout
+        val safeLeft = cutout?.safeInsetLeft ?: 0
+        val safeRight = cutout?.safeInsetRight ?: 0
+        val startPx = if (layoutDirection == LayoutDirection.Ltr) safeLeft else safeRight
+        val endPx = if (layoutDirection == LayoutDirection.Ltr) safeRight else safeLeft
+        cutoutStartInsetDp = with(density) { startPx.toDp() }
+        cutoutEndInsetDp = with(density) { endPx.toDp() }
+    } else {
+        cutoutStartInsetDp = 0.dp
+        cutoutEndInsetDp = 0.dp
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .padding(start = cutoutStartInsetDp, end = cutoutEndInsetDp)
     ) {
         Header(
             state = state,
