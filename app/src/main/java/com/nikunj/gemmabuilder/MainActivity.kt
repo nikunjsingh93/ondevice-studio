@@ -875,6 +875,8 @@ fun AutoScrollingMonospaceText(text: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun AutoScrollingCodeText(text: String, fontScale: Float = 1f, modifier: Modifier = Modifier) {
+    val dark = ColorUtils.calculateLuminance(MaterialTheme.colorScheme.background.toArgb()) < 0.5
+    val codeBg = if (dark) Color(0xFF1F2228) else Color(0xFFF7F7F8)
     val scrollState = rememberScrollState()
     LaunchedEffect(text) {
         delay(40)
@@ -882,26 +884,26 @@ fun AutoScrollingCodeText(text: String, fontScale: Float = 1f, modifier: Modifie
     }
     SelectionContainer {
         Text(
-            text = syntaxHighlightCode(text),
+            text = syntaxHighlightCode(text, dark),
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * fontScale),
             modifier = modifier
                 .verticalScroll(scrollState)
-                .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
+                .background(codeBg, MaterialTheme.shapes.medium)
                 .padding(12.dp)
         )
     }
 }
 
-fun syntaxHighlightCode(text: String): AnnotatedString {
-    val keywordColor = Color(0xFF4FC3F7)
-    val tagColor = Color(0xFF81C784)
-    val attrColor = Color(0xFFFFB74D)
-    val stringColor = Color(0xFFE57373)
-    val commentColor = Color(0xFF9E9E9E)
-    val cssSelectorColor = Color(0xFFA5D6A7)
-    val cssPropertyColor = Color(0xFF80CBC4)
-    val numberColor = Color(0xFFCE93D8)
+fun syntaxHighlightCode(text: String, dark: Boolean): AnnotatedString {
+    val keywordColor = if (dark) Color(0xFF4FC3F7) else Color(0xFF005A9C)
+    val tagColor = if (dark) Color(0xFF81C784) else Color(0xFF1B5E20)
+    val attrColor = if (dark) Color(0xFFFFB74D) else Color(0xFF8D4E00)
+    val stringColor = if (dark) Color(0xFFE57373) else Color(0xFFB71C1C)
+    val commentColor = if (dark) Color(0xFF9E9E9E) else Color(0xFF616161)
+    val cssSelectorColor = if (dark) Color(0xFFA5D6A7) else Color(0xFF2E7D32)
+    val cssPropertyColor = if (dark) Color(0xFF80CBC4) else Color(0xFF00695C)
+    val numberColor = if (dark) Color(0xFFCE93D8) else Color(0xFF6A1B9A)
 
     val out = Builder(text)
     fun apply(regex: Regex, style: SpanStyle) {
