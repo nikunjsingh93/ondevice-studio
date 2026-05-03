@@ -771,7 +771,7 @@ fun ChatPanel(
                     val emptyStateHint = if (state.modelReady) {
                         "Start by describing the web app you want. The result will appear in the preview below."
                     } else {
-                        "Please import a .litertlm model first from the ⋮ menu. Preferred model: gemma-4-E2B-it."
+                        "Please import a .litertlm model first from the ⋮ menu. Preferred model: gemma-4-E2B-it.litertlm"
                     }
                     Text(
                         text = emptyStateHint,
