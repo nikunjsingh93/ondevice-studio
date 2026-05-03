@@ -26,6 +26,9 @@ It includes:
 
 The app does not bundle the model because the `.litertlm` file is very large.
 
+Model download page:
+- https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/tree/main
+
 1. Download a Gemma 4 E2B `.litertlm` model to your phone.
 2. Open the app.
 3. Tap **Import .litertlm**.
