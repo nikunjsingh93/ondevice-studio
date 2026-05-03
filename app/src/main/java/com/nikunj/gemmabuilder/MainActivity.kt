@@ -516,7 +516,7 @@ fun Header(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "Gemma Builder",
+                        text = "OnDevice Studio",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -2402,7 +2402,7 @@ fun welcomeHtml(): String = """
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Gemma Builder</title>
+<title>OnDevice Studio</title>
 <style>
   body { margin:0; min-height:100vh; font-family:system-ui,sans-serif; background:linear-gradient(135deg,#111827,#4338ca); color:white; display:grid; place-items:center; }
   .card { width:min(92vw,680px); background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); border-radius:28px; padding:28px; box-shadow:0 30px 80px rgba(0,0,0,.35); }
@@ -2415,7 +2415,7 @@ fun welcomeHtml(): String = """
   <main class="card">
     <h1>Local Android AI Builder</h1>
     <p>Ask the chat panel to build a calculator, game menu, landing page, or another tiny offline web app. The result will be written to index.html and previewed here.</p>
-    <span class="pill">Ready for demo mode or Gemma LiteRT-LM</span>
+    <span class="pill">Ready for Preview</span>
   </main>
 </body>
 </html>
