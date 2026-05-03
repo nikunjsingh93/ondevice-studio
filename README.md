@@ -1,4 +1,4 @@
-# Gemma Android Builder MVP
+# Gemma Android Builder
 
 This is a minimal Android Studio project for an on-device HTML/CSS/JS builder app.
 
