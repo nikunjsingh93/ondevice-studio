@@ -769,9 +769,20 @@ fun ChatPanel(
             ) {
                 if (state.messages.isEmpty()) {
                     val emptyStateHint = if (state.modelReady) {
-                        "Start by describing the web app you want. The result will appear in the preview below."
+                        androidx.compose.ui.text.buildAnnotatedString {
+                            append("Start by describing the web app you want. The result will appear in the preview below.")
+                        }
                     } else {
-                        "Please import a .litertlm model first from the ⋮ menu. Preferred model: gemma-4-E2B-it.litertlm"
+                        androidx.compose.ui.text.buildAnnotatedString {
+                            append("Please import a ")
+                            pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                            append(".litertlm")
+                            pop()
+                            append(" model first from the ⋮ menu. Preferred model: ")
+                            pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                            append("gemma-4-E2B-it.litertlm")
+                            pop()
+                        }
                     }
                     Text(
                         text = emptyStateHint,
