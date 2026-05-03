@@ -365,35 +365,67 @@ fun MainBuilderContent(
                 )
             }
         } else {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                ChatPanel(
+            if (state.workPanelCollapsed) {
+                Box(
                     modifier = Modifier
-                        .width(420.dp)
-                        .fillMaxHeight(),
-                    state = state,
-                    onPromptChange = onPromptChange,
-                    onGenerate = onGenerate
-                )
-                WorkPanel(
-                    modifier = Modifier.fillMaxSize(),
-                    state = state,
-                    onTab = { index ->
-                        if (state.workPanelCollapsed) onToggleWorkPanelCollapsed()
-                        onTab(index)
-                    },
-                    onRefresh = onRefresh,
-                    onToggleFullscreen = onToggleFullscreen,
-                    onToggleWorkPanelCollapsed = onToggleWorkPanelCollapsed,
-                    onImportFiles = onImportFiles,
-                    onOpenFileInCode = onOpenFileInCode,
-                    onSaveFile = onSaveFile,
-                    onSaveZip = onSaveZip
-                )
+                        .fillMaxSize()
+                        .weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ChatPanel(
+                            modifier = Modifier
+                                .fillMaxWidth(0.9f)
+                                .fillMaxHeight(),
+                            state = state,
+                            onPromptChange = onPromptChange,
+                            onGenerate = onGenerate
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 8.dp)
+                            .size(44.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small)
+                            .clickable { onToggleWorkPanelCollapsed() },
+                        contentAlignment = Alignment.Center
+                    ) { Text("▴", fontWeight = FontWeight.Bold) }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    ChatPanel(
+                        modifier = Modifier
+                            .width(420.dp)
+                            .fillMaxHeight(),
+                        state = state,
+                        onPromptChange = onPromptChange,
+                        onGenerate = onGenerate
+                    )
+                    WorkPanel(
+                        modifier = Modifier.fillMaxSize(),
+                        state = state,
+                        onTab = { index ->
+                            if (state.workPanelCollapsed) onToggleWorkPanelCollapsed()
+                            onTab(index)
+                        },
+                        onRefresh = onRefresh,
+                        onToggleFullscreen = onToggleFullscreen,
+                        onToggleWorkPanelCollapsed = onToggleWorkPanelCollapsed,
+                        onImportFiles = onImportFiles,
+                        onOpenFileInCode = onOpenFileInCode,
+                        onSaveFile = onSaveFile,
+                        onSaveZip = onSaveZip
+                    )
+                }
             }
         }
     }
