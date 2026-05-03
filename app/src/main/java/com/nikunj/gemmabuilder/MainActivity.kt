@@ -768,8 +768,13 @@ fun ChatPanel(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (state.messages.isEmpty()) {
+                    val emptyStateHint = if (state.modelReady) {
+                        "Start by describing the web app you want. The result will appear in the preview below."
+                    } else {
+                        "Please import a .litertlm model first from the ⋮ menu. Preferred model: gemma-4-E2B-it."
+                    }
                     Text(
-                        text = "Start by describing the web app you want. The result will appear in the preview below.",
+                        text = emptyStateHint,
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
