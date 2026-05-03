@@ -41,9 +41,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -84,6 +86,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString.Builder
@@ -359,7 +362,8 @@ fun MainBuilderContent(
                     state = state,
                     onPromptChange = onPromptChange,
                     onGenerate = onGenerate,
-                    chatFontScale = state.chatFontScale
+                    chatFontScale = state.chatFontScale,
+                    liftInputForKeyboard = state.workPanelCollapsed
                 )
                 WorkPanel(
                     modifier = Modifier
@@ -398,7 +402,8 @@ fun MainBuilderContent(
                             state = state,
                             onPromptChange = onPromptChange,
                             onGenerate = onGenerate,
-                            chatFontScale = state.chatFontScale
+                            chatFontScale = state.chatFontScale,
+                            liftInputForKeyboard = false
                         )
                     }
                     Box(
@@ -425,7 +430,8 @@ fun MainBuilderContent(
                         state = state,
                         onPromptChange = onPromptChange,
                         onGenerate = onGenerate,
-                        chatFontScale = state.chatFontScale
+                        chatFontScale = state.chatFontScale,
+                        liftInputForKeyboard = false
                     )
                     WorkPanel(
                         modifier = Modifier.fillMaxSize(),
@@ -683,10 +689,14 @@ fun ChatPanel(
     state: BuilderUiState,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
-    chatFontScale: Float
+    chatFontScale: Float,
+    liftInputForKeyboard: Boolean
 ) {
     val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
     val landscapeKeyboardLift = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val shouldLiftInput = landscapeKeyboardLift || liftInputForKeyboard
+    val imeBottom = with(density) { WindowInsets.ime.getBottom(density).toDp() }
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = modifier
@@ -725,7 +735,7 @@ fun ChatPanel(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (landscapeKeyboardLift) Modifier.imePadding() else Modifier),
+                    .then(if (shouldLiftInput) Modifier.padding(bottom = imeBottom) else Modifier),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
