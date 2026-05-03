@@ -111,6 +111,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.core.content.FileProvider
 import androidx.core.graphics.ColorUtils
@@ -265,6 +266,10 @@ fun BuilderApp(
         contract = ActivityResultContracts.CreateDocument("application/zip"),
         onResult = { uri -> if (uri != null) vm.exportProjectZip(context.applicationContext, uri) }
     )
+    val pwaZipSaver = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+        onResult = { uri -> if (uri != null) vm.exportPwaReadyProjectZip(context.applicationContext, uri) }
+    )
 
     BackHandler(enabled = state.previewFullscreen) { vm.togglePreviewFullscreen() }
     BackHandler(enabled = state.sidebarOpen && !state.previewFullscreen) { vm.toggleSidebar() }
@@ -304,7 +309,8 @@ fun BuilderApp(
                     pendingExportPath = relativePath
                     fileSaver.launch(relativePath.substringAfterLast('/'))
                 },
-                onSaveZip = { zipSaver.launch("GemmaAndroidBuilderProject.zip") }
+                onSaveZip = { zipSaver.launch("OnDeviceStudioProject.zip") },
+                onSavePwaZip = { pwaZipSaver.launch("OnDeviceStudioPWA.zip") }
             )
             if (settingsScreenOpen) {
                 SettingsDialog(
@@ -361,7 +367,8 @@ fun MainBuilderContent(
     onOpenFileInCode: (String) -> Unit,
     onDeleteFile: (String) -> Unit,
     onSaveFile: (String) -> Unit,
-    onSaveZip: () -> Unit
+    onSaveZip: () -> Unit,
+    onSavePwaZip: () -> Unit
 ) {
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
@@ -432,7 +439,8 @@ fun MainBuilderContent(
                     onOpenFileInCode = onOpenFileInCode,
                     onDeleteFile = onDeleteFile,
                     onSaveFile = onSaveFile,
-                    onSaveZip = onSaveZip
+                    onSaveZip = onSaveZip,
+                    onSavePwaZip = onSavePwaZip
                 )
             }
         } else {
@@ -499,7 +507,8 @@ fun MainBuilderContent(
                         onOpenFileInCode = onOpenFileInCode,
                         onDeleteFile = onDeleteFile,
                         onSaveFile = onSaveFile,
-                        onSaveZip = onSaveZip
+                        onSaveZip = onSaveZip,
+                        onSavePwaZip = onSavePwaZip
                     )
                 }
             }
@@ -1037,7 +1046,8 @@ fun WorkPanel(
     onOpenFileInCode: (String) -> Unit,
     onDeleteFile: (String) -> Unit,
     onSaveFile: (String) -> Unit,
-    onSaveZip: () -> Unit
+    onSaveZip: () -> Unit,
+    onSavePwaZip: () -> Unit
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -1107,7 +1117,8 @@ fun WorkPanel(
                         onOpenFileInCode = onOpenFileInCode,
                         onDeleteFile = onDeleteFile,
                         onSaveFile = onSaveFile,
-                        onSaveZip = onSaveZip
+                        onSaveZip = onSaveZip,
+                        onSavePwaZip = onSavePwaZip
                     )
                 }
             }
@@ -1309,9 +1320,11 @@ fun FilesPane(
     onOpenFileInCode: (String) -> Unit,
     onDeleteFile: (String) -> Unit,
     onSaveFile: (String) -> Unit,
-    onSaveZip: () -> Unit
+    onSaveZip: () -> Unit,
+    onSavePwaZip: () -> Unit
 ) {
     var pendingDelete by remember { mutableStateOf<String?>(null) }
+    var toolsMenuOpen by remember { mutableStateOf(false) }
     pendingDelete?.let { file ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
@@ -1338,13 +1351,32 @@ fun FilesPane(
             Column(Modifier.weight(1f)) {
                 Text("Project files", fontWeight = FontWeight.Bold)
                 Text(
-                    "Tap Save to export a generated file.",
+                    "Tap a file to open code. Use ⋮ for import/export tools.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            OutlinedButton(onClick = onImportFiles) { Text("Import") }
-            OutlinedButton(onClick = onSaveZip, enabled = state.files.isNotEmpty()) { Text("Save ZIP") }
+            Box {
+                IconButton(onClick = { toolsMenuOpen = true }) {
+                    Icon(Icons.Outlined.MoreVert, contentDescription = "Files tools")
+                }
+                DropdownMenu(expanded = toolsMenuOpen, onDismissRequest = { toolsMenuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Import files") },
+                        onClick = { toolsMenuOpen = false; onImportFiles() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Save ZIP") },
+                        enabled = state.files.isNotEmpty(),
+                        onClick = { toolsMenuOpen = false; onSaveZip() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Save PWA-ready zip") },
+                        enabled = state.files.isNotEmpty(),
+                        onClick = { toolsMenuOpen = false; onSavePwaZip() }
+                    )
+                }
+            }
         }
         Spacer(Modifier.height(10.dp))
         Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -1985,6 +2017,40 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
         }
     }
 
+    fun exportPwaReadyProjectZip(context: Context, destination: Uri) {
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val root = activeProjectRoot(context)
+                    ensurePwaFiles(root)
+                    context.contentResolver.openOutputStream(destination).use { output ->
+                        requireNotNull(output) { "Could not open destination ZIP." }
+                        ZipOutputStream(output).use { zip ->
+                            root.walkTopDown().filter { it.isFile }.forEach { file ->
+                                val entryName = file.relativeTo(root).path.replace('\\', '/')
+                                zip.putNextEntry(ZipEntry(entryName))
+                                file.inputStream().use { input -> input.copyTo(zip) }
+                                zip.closeEntry()
+                            }
+                        }
+                    }
+                }
+            }
+            _uiState.update {
+                it.copy(
+                    status = if (result.isSuccess) {
+                        "Saved PWA-ready ZIP (with manifest.webmanifest and service-worker.js)."
+                    } else {
+                        "PWA ZIP save failed: ${result.exceptionOrNull()?.message ?: "unknown error"}"
+                    }
+                )
+            }
+            if (result.isSuccess) {
+                refreshWorkspace(context)
+            }
+        }
+    }
+
     private fun activeProjectRoot(context: Context): File {
         val id = uiState.value.activeConversationId ?: conversations.firstOrNull()?.id
         require(!id.isNullOrBlank()) { "No active conversation." }
@@ -2449,6 +2515,40 @@ fun safeResolve(root: File, relativePath: String): File {
     return out
 }
 
+fun ensurePwaFiles(root: File) {
+    val manifest = File(root, "manifest.webmanifest")
+    if (!manifest.exists()) {
+        manifest.writeText(defaultPwaManifest())
+    }
+
+    val serviceWorker = File(root, "service-worker.js")
+    if (!serviceWorker.exists()) {
+        serviceWorker.writeText(defaultServiceWorker())
+    }
+
+    val index = File(root, "index.html")
+    if (index.exists()) {
+        var html = index.readText()
+        if (!html.contains("manifest.webmanifest", ignoreCase = true)) {
+            html = html.replaceFirst(
+                Regex("(?i)</head>"),
+                "  <link rel=\"manifest\" href=\"manifest.webmanifest\" />\n</head>"
+            )
+        }
+        if (!html.contains("serviceWorker.register", ignoreCase = true)) {
+            val registration = """
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('service-worker.js'));
+}
+</script>
+""".trimIndent()
+            html = html.replaceFirst(Regex("(?i)</body>"), "$registration\n</body>")
+        }
+        index.writeText(html)
+    }
+}
+
 private fun buildProjectContextForModel(context: Context, root: File): String {
     val files = root.walkTopDown()
         .filter { it.isFile }
@@ -2802,6 +2902,57 @@ fun welcomeHtml(): String = """
   </main>
 </body>
 </html>
+""".trimIndent()
+
+fun defaultPwaManifest(): String = """
+{
+  "name": "OnDevice Studio App",
+  "short_name": "OnDevice",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#4338ca",
+  "icons": []
+}
+""".trimIndent()
+
+fun defaultServiceWorker(): String = """
+const CACHE_NAME = "ondevice-studio-v1";
+const APP_SHELL = [
+  "./",
+  "./index.html",
+  "./manifest.webmanifest"
+];
+
+self.addEventListener("install", event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.map(key => key !== CACHE_NAME ? caches.delete(key) : null))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET") return;
+  event.respondWith(
+    caches.match(event.request).then(cached => {
+      if (cached) return cached;
+      return fetch(event.request).then(networkResponse => {
+        const copy = networkResponse.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
+        return networkResponse;
+      }).catch(() => caches.match("./index.html"));
+    })
+  );
+});
 """.trimIndent()
 
 fun calculatorHtml(): String = """
