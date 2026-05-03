@@ -47,11 +47,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -166,6 +164,22 @@ import kotlin.math.max
 
 private const val SAMPLE_PLACEHOLDER = "Build anything..."
 private val ORDERED_LIST_PREFIX = Regex("""^\d+\.\s+""")
+private val OnDeviceLightColors = lightColorScheme(
+    primary = Color(0xFF0A84FF),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFD8ECFF),
+    onPrimaryContainer = Color(0xFF002A4D),
+    secondary = Color(0xFF2D6FB8),
+    secondaryContainer = Color(0xFFDCEBFF)
+)
+private val OnDeviceDarkColors = darkColorScheme(
+    primary = Color(0xFF3AA0FF),
+    onPrimary = Color(0xFF002846),
+    primaryContainer = Color(0xFF003C69),
+    onPrimaryContainer = Color(0xFFD5ECFF),
+    secondary = Color(0xFF8DC2FF),
+    secondaryContainer = Color(0xFF204A74)
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -229,7 +243,7 @@ fun BuilderRoot() {
         }
     }
 
-    MaterialTheme(colorScheme = if (useDarkTheme) darkColorScheme() else lightColorScheme()) {
+    MaterialTheme(colorScheme = if (useDarkTheme) OnDeviceDarkColors else OnDeviceLightColors) {
         Surface(
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
@@ -439,7 +453,7 @@ fun MainBuilderContent(
                 ChatPanel(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.48f),
+                        .weight(if (state.workPanelCollapsed) 1f else 0.48f),
                     state = state,
                     onPromptChange = onPromptChange,
                     onGenerate = onGenerate,
@@ -832,13 +846,12 @@ fun ChatPanel(
     liftInputForKeyboard: Boolean
 ) {
     val configuration = LocalConfiguration.current
-    val density = LocalDensity.current
-    val landscapeKeyboardLift = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val shouldLiftInput = landscapeKeyboardLift || liftInputForKeyboard
-    val imeBottom = with(density) { WindowInsets.ime.getBottom(density).toDp() }
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val shouldLiftInput =
+        isLandscape || (liftInputForKeyboard && configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = modifier
+        modifier = modifier.then(if (shouldLiftInput) Modifier.imePadding() else Modifier)
     ) {
         Column(Modifier.fillMaxSize().padding(12.dp)) {
             val chatScrollState = rememberScrollState()
@@ -910,8 +923,7 @@ fun ChatPanel(
             var addMenuOpen by remember { mutableStateOf(false) }
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (shouldLiftInput) Modifier.padding(bottom = imeBottom) else Modifier),
+                    .fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -939,7 +951,6 @@ fun ChatPanel(
                     value = state.prompt,
                     onValueChange = onPromptChange,
                     modifier = Modifier.weight(1f),
-                    label = { Text("Message Gemma") },
                     placeholder = { if (state.messages.isEmpty()) Text(SAMPLE_PLACEHOLDER) },
                     minLines = 1,
                     maxLines = 4,
