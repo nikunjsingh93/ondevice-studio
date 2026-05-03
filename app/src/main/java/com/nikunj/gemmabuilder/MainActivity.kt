@@ -2185,7 +2185,12 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
     ): String {
         val root = activeProjectRoot(context)
         val current = htmlContextForModel(File(root, "index.html").takeIf { it.exists() }?.readText().orEmpty())
-        val fileContext = buildProjectContextForModel(context, root, preferredAttachmentPaths)
+        val fileContext = buildProjectContextForModel(
+            context = context,
+            root = root,
+            preferredPaths = preferredAttachmentPaths,
+            onlyPreferredWhenProvided = preferredAttachmentPaths.isNotEmpty()
+        )
         val recent = messages.takeLast(8).joinToString("\n") { msg ->
             "${msg.role}: ${msg.text.take(1000)}"
         }
@@ -2665,7 +2670,8 @@ if ('serviceWorker' in navigator) {
 private fun buildProjectContextForModel(
     context: Context,
     root: File,
-    preferredPaths: List<String> = emptyList()
+    preferredPaths: List<String> = emptyList(),
+    onlyPreferredWhenProvided: Boolean = false
 ): String {
     val files = root.walkTopDown()
         .filter { it.isFile }
@@ -2699,7 +2705,11 @@ private fun buildProjectContextForModel(
     val remainingFiles = files
         .filterNot { (path, _) -> preferredSet.any { it.equals(path, ignoreCase = true) } }
         .sortedBy { it.first }
-    val orderedFiles = preferredFiles + remainingFiles
+    val orderedFiles = if (onlyPreferredWhenProvided && preferredFiles.isNotEmpty()) {
+        preferredFiles
+    } else {
+        preferredFiles + remainingFiles
+    }
 
     if (preferredFiles.isNotEmpty()) {
         appendFile(
