@@ -28,6 +28,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -90,7 +91,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -113,6 +116,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.OpenInNew
@@ -307,6 +311,7 @@ fun BuilderApp(
                 onImportPhotos = { photoImporter.launch("image/*") },
                 onPromptChange = vm::setPrompt,
                 onGenerate = { vm.generate(context.applicationContext) },
+                onOpenImagePreview = { relativePath -> vm.openImagePreview(context.applicationContext, relativePath) },
                 onTab = vm::setTab,
                 onRefresh = { vm.reloadPreview() },
                 onToggleFullscreen = { vm.togglePreviewFullscreen() },
@@ -352,6 +357,12 @@ fun BuilderApp(
                     )
                 }
             }
+            state.previewImagePath?.let { imagePath ->
+                ImagePreviewOverlay(
+                    imagePath = imagePath,
+                    onClose = vm::closeImagePreview
+                )
+            }
         }
     }
 }
@@ -369,6 +380,7 @@ fun MainBuilderContent(
     onImportPhotos: () -> Unit,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
+    onOpenImagePreview: (String) -> Unit,
     onTab: (Int) -> Unit,
     onRefresh: () -> Unit,
     onToggleFullscreen: () -> Unit,
@@ -431,6 +443,7 @@ fun MainBuilderContent(
                     onGenerate = onGenerate,
                     onAddPhotos = onImportPhotos,
                     onAddFiles = onImportFiles,
+                    onOpenImagePreview = onOpenImagePreview,
                     chatFontScale = state.chatFontScale,
                     liftInputForKeyboard = state.workPanelCollapsed
                 )
@@ -448,6 +461,7 @@ fun MainBuilderContent(
                     onToggleWorkPanelCollapsed = onToggleWorkPanelCollapsed,
                     onImportFiles = onImportFiles,
                     onOpenFileInCode = onOpenFileInCode,
+                    onOpenImagePreview = onOpenImagePreview,
                     onDeleteFile = onDeleteFile,
                     onSaveFile = onSaveFile,
                     onSaveZip = onSaveZip,
@@ -475,6 +489,7 @@ fun MainBuilderContent(
                             onGenerate = onGenerate,
                             onAddPhotos = onImportPhotos,
                             onAddFiles = onImportFiles,
+                            onOpenImagePreview = onOpenImagePreview,
                             chatFontScale = state.chatFontScale,
                             liftInputForKeyboard = false
                         )
@@ -505,6 +520,7 @@ fun MainBuilderContent(
                         onGenerate = onGenerate,
                         onAddPhotos = onImportPhotos,
                         onAddFiles = onImportFiles,
+                        onOpenImagePreview = onOpenImagePreview,
                         chatFontScale = state.chatFontScale,
                         liftInputForKeyboard = false
                     )
@@ -520,6 +536,7 @@ fun MainBuilderContent(
                         onToggleWorkPanelCollapsed = onToggleWorkPanelCollapsed,
                         onImportFiles = onImportFiles,
                         onOpenFileInCode = onOpenFileInCode,
+                        onOpenImagePreview = onOpenImagePreview,
                         onDeleteFile = onDeleteFile,
                         onSaveFile = onSaveFile,
                         onSaveZip = onSaveZip,
@@ -543,6 +560,46 @@ fun FullscreenPreview(state: BuilderUiState) {
         when (state.tab) {
             1 -> FullscreenCodePane(state)
             else -> PreviewPane(state)
+        }
+    }
+}
+
+@Composable
+fun ImagePreviewOverlay(
+    imagePath: String,
+    onClose: () -> Unit
+) {
+    val bitmap = remember(imagePath) { BitmapFactory.decodeFile(imagePath) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.88f))
+            .clickable { onClose() }
+            .padding(16.dp)
+    ) {
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .background(Color.Black.copy(alpha = 0.35f), MaterialTheme.shapes.small)
+        ) {
+            Icon(Icons.Outlined.Close, contentDescription = "Close image", tint = Color.White)
+        }
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Selected image preview",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = 42.dp)
+            )
+        } else {
+            Text(
+                text = "Could not open image preview.",
+                color = Color.White,
+                modifier = Modifier.align(Alignment.Center)
+            )
         }
     }
 }
@@ -768,6 +825,7 @@ fun ChatPanel(
     onGenerate: () -> Unit,
     onAddPhotos: () -> Unit,
     onAddFiles: () -> Unit,
+    onOpenImagePreview: (String) -> Unit,
     chatFontScale: Float,
     liftInputForKeyboard: Boolean
 ) {
@@ -820,7 +878,7 @@ fun ChatPanel(
                             .padding(12.dp)
                     )
                 } else {
-                    state.messages.forEach { msg -> MessageBubble(msg, chatFontScale) }
+                    state.messages.forEach { msg -> MessageBubble(msg, chatFontScale, onOpenImagePreview) }
                     if (state.isBusy) {
                         ProcessingBubble(state.status, chatFontScale)
                     }
@@ -901,7 +959,7 @@ fun ChatPanel(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(message: ChatMessage, chatFontScale: Float) {
+fun MessageBubble(message: ChatMessage, chatFontScale: Float, onOpenImagePreview: (String) -> Unit) {
     val mine = message.role == "user"
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -982,6 +1040,7 @@ fun MessageBubble(message: ChatMessage, chatFontScale: Float) {
                             .background(userBubbleColor.copy(alpha = if (dark) 0.85f else 0.95f), MaterialTheme.shapes.small)
                             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), MaterialTheme.shapes.small)
                             .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .clickable(enabled = isPreviewableImageFile(name)) { onOpenImagePreview(name) }
                     )
                 }
             }
@@ -1123,6 +1182,7 @@ fun WorkPanel(
     onToggleWorkPanelCollapsed: () -> Unit,
     onImportFiles: () -> Unit,
     onOpenFileInCode: (String) -> Unit,
+    onOpenImagePreview: (String) -> Unit,
     onDeleteFile: (String) -> Unit,
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit,
@@ -1194,6 +1254,7 @@ fun WorkPanel(
                         state,
                         onImportFiles = onImportFiles,
                         onOpenFileInCode = onOpenFileInCode,
+                        onOpenImagePreview = onOpenImagePreview,
                         onDeleteFile = onDeleteFile,
                         onSaveFile = onSaveFile,
                         onSaveZip = onSaveZip,
@@ -1397,6 +1458,7 @@ fun FilesPane(
     state: BuilderUiState,
     onImportFiles: () -> Unit,
     onOpenFileInCode: (String) -> Unit,
+    onOpenImagePreview: (String) -> Unit,
     onDeleteFile: (String) -> Unit,
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit,
@@ -1470,7 +1532,12 @@ fun FilesPane(
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier
                             .weight(1f)
-                            .clickable(enabled = isCodeFile(file)) { onOpenFileInCode(file) }
+                            .clickable(enabled = isCodeFile(file) || isPreviewableImageFile(file)) {
+                                when {
+                                    isCodeFile(file) -> onOpenFileInCode(file)
+                                    isPreviewableImageFile(file) -> onOpenImagePreview(file)
+                                }
+                            }
                     )
                     if (isCodeFile(file)) {
                         IconButton(onClick = { onOpenFileInCode(file) }) {
@@ -1513,6 +1580,18 @@ fun isCodeFile(path: String): Boolean {
         lower.endsWith(".txt") ||
         lower.endsWith(".md") ||
         lower.endsWith(".xml")
+}
+
+fun isPreviewableImageFile(path: String): Boolean {
+    val lower = path.lowercase(Locale.US)
+    return lower.endsWith(".png") ||
+        lower.endsWith(".jpg") ||
+        lower.endsWith(".jpeg") ||
+        lower.endsWith(".webp") ||
+        lower.endsWith(".bmp") ||
+        lower.endsWith(".gif") ||
+        lower.endsWith(".heic") ||
+        lower.endsWith(".heif")
 }
 
 data class ChatMessage(
@@ -1561,7 +1640,8 @@ data class BuilderUiState(
     val workPanelCollapsed: Boolean = false,
     val chatFontScale: Float = 1.2f,
     val codeFontScale: Float = 1f,
-    val pendingAttachments: List<String> = emptyList()
+    val pendingAttachments: List<String> = emptyList(),
+    val previewImagePath: String? = null
 )
 
 data class WriteFileAction(val path: String, val content: String)
@@ -1820,6 +1900,29 @@ class BuilderViewModel : ViewModel() {
                 }
             }
         }
+    }
+
+    fun openImagePreview(context: Context, relativePath: String) {
+        viewModelScope.launch {
+            val result = runCatching {
+                val root = activeProjectRoot(context)
+                val file = safeResolve(root, relativePath)
+                require(file.exists()) { "Image not found: $relativePath" }
+                require(isPreviewableImageFile(relativePath)) { "Not an image file: $relativePath" }
+                file.absolutePath
+            }
+            _uiState.update {
+                if (result.isSuccess) {
+                    it.copy(previewImagePath = result.getOrNull())
+                } else {
+                    it.copy(status = "Image preview failed: ${result.exceptionOrNull()?.message ?: "unknown error"}")
+                }
+            }
+        }
+    }
+
+    fun closeImagePreview() {
+        _uiState.update { it.copy(previewImagePath = null) }
     }
 
     fun loadGemma(context: Context) {
