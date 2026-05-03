@@ -84,6 +84,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString.Builder
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -268,8 +270,7 @@ fun BuilderApp(
                     pendingExportPath = relativePath
                     fileSaver.launch(relativePath.substringAfterLast('/'))
                 },
-                onSaveZip = { zipSaver.launch("GemmaAndroidBuilderProject.zip") },
-                onOpenBrowser = { vm.openInBrowser(context.applicationContext) }
+                onSaveZip = { zipSaver.launch("GemmaAndroidBuilderProject.zip") }
             )
 
             if (state.sidebarOpen) {
@@ -314,8 +315,7 @@ fun MainBuilderContent(
     onToggleFullscreen: () -> Unit,
     onOpenFileInCode: (String) -> Unit,
     onSaveFile: (String) -> Unit,
-    onSaveZip: () -> Unit,
-    onOpenBrowser: () -> Unit
+    onSaveZip: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -355,8 +355,7 @@ fun MainBuilderContent(
                     onImportFiles = onImportFiles,
                     onOpenFileInCode = onOpenFileInCode,
                     onSaveFile = onSaveFile,
-                    onSaveZip = onSaveZip,
-                    onOpenBrowser = onOpenBrowser
+                    onSaveZip = onSaveZip
                 )
             }
         } else {
@@ -383,8 +382,7 @@ fun MainBuilderContent(
                     onImportFiles = onImportFiles,
                     onOpenFileInCode = onOpenFileInCode,
                     onSaveFile = onSaveFile,
-                    onSaveZip = onSaveZip,
-                    onOpenBrowser = onOpenBrowser
+                    onSaveZip = onSaveZip
                 )
             }
         }
@@ -782,6 +780,49 @@ fun AutoScrollingMonospaceText(text: String, modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+fun AutoScrollingCodeText(text: String, modifier: Modifier = Modifier) {
+    val scrollState = rememberScrollState()
+    LaunchedEffect(text) {
+        delay(40)
+        scrollState.scrollTo(scrollState.maxValue)
+    }
+    SelectionContainer {
+        Text(
+            text = syntaxHighlightCode(text),
+            fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = modifier
+                .verticalScroll(scrollState)
+                .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
+                .padding(12.dp)
+        )
+    }
+}
+
+fun syntaxHighlightCode(text: String): AnnotatedString {
+    val keywordColor = Color(0xFF4FC3F7)
+    val tagColor = Color(0xFF81C784)
+    val attrColor = Color(0xFFFFB74D)
+    val stringColor = Color(0xFFE57373)
+    val commentColor = Color(0xFF9E9E9E)
+
+    val out = Builder(text)
+    fun apply(regex: Regex, style: SpanStyle) {
+        regex.findAll(text).forEach { m ->
+            out.addStyle(style, m.range.first, m.range.last + 1)
+        }
+    }
+    apply(Regex("""<!--[\s\S]*?-->"""), SpanStyle(color = commentColor))
+    apply(Regex("""/\*[\s\S]*?\*/"""), SpanStyle(color = commentColor))
+    apply(Regex("""(?m)//.*$"""), SpanStyle(color = commentColor))
+    apply(Regex("""</?[A-Za-z][^>\s/]*"""), SpanStyle(color = tagColor))
+    apply(Regex("""\s[A-Za-z_:][-A-Za-z0-9_:.]*(?=\=)"""), SpanStyle(color = attrColor))
+    apply(Regex(""""([^"\\\\]|\\\\.)*"|'([^'\\\\]|\\\\.)*'"""), SpanStyle(color = stringColor))
+    apply(Regex("""\b(function|const|let|var|return|if|else|for|while|class|new|import|export|from|async|await|true|false|null|undefined)\b"""), SpanStyle(color = keywordColor, fontWeight = FontWeight.SemiBold))
+    return out.toAnnotatedString()
+}
+
 fun codeTextForDisplay(state: BuilderUiState): String {
     return when {
         state.isBusy && state.streamingCode.isNotBlank() -> state.streamingCode
@@ -826,8 +867,7 @@ fun WorkPanel(
     onImportFiles: () -> Unit,
     onOpenFileInCode: (String) -> Unit,
     onSaveFile: (String) -> Unit,
-    onSaveZip: () -> Unit,
-    onOpenBrowser: () -> Unit
+    onSaveZip: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -874,15 +914,6 @@ fun WorkPanel(
                                 maxLines = 1
                             )
                         }
-                        Text(
-                            text = "Open in browser",
-                            modifier = Modifier
-                                .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small)
-                                .clickable { onOpenBrowser() }
-                                .padding(horizontal = 14.dp, vertical = 9.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1
-                        )
                     }
                 }
             }
@@ -1058,7 +1089,7 @@ fun CodePane(state: BuilderUiState) {
             )
         }
         Spacer(Modifier.height(8.dp))
-        AutoScrollingMonospaceText(
+        AutoScrollingCodeText(
             text = codeTextForDisplay(state),
             modifier = Modifier.fillMaxSize()
         )
@@ -1474,6 +1505,7 @@ class BuilderViewModel : ViewModel() {
                 val basePrompt = buildPrompt(context, prompt, pendingMessages)
                 var responseText = ""
                 var actions: List<WriteFileAction> = emptyList()
+                var assistantReply: String? = null
                 var lastError: Throwable? = null
                 val maxAttempts = 4
 
@@ -1530,12 +1562,33 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                         )
                     }
                     actions = normalizeWriteActions(recoverWriteFileActions(responseText))
+                    assistantReply = recoverAssistantReply(responseText)
                     if (actions.isNotEmpty() && actions.all { isCompleteEnoughForWriting(it) }) {
+                        break
+                    }
+                    if (!assistantReply.isNullOrBlank()) {
                         break
                     }
                     if (attempt < maxAttempts) {
                         _uiState.update { it.copy(status = "Generated file looked incomplete. Retrying ${attempt + 1}/$maxAttempts...") }
                     }
+                }
+
+                if (actions.isEmpty() && !assistantReply.isNullOrBlank()) {
+                    val reply = assistantReply!!.trim()
+                    val finalMessages = uiState.value.messages + ChatMessage("assistant", reply)
+                    persistActiveConversation(context, finalMessages)
+                    _uiState.update {
+                        it.copy(
+                            isBusy = false,
+                            status = "Answered.",
+                            lastRawResponse = responseText,
+                            streamingCode = "",
+                            messages = finalMessages,
+                            tab = 0
+                        )
+                    }
+                    return@launch
                 }
 
                 if (actions.isEmpty() || actions.any { !isCompleteEnoughForWriting(it) }) {
@@ -1568,7 +1621,8 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
 
                 if (written.isSuccess) {
                     refreshWorkspace(context)
-                    val assistantMessage = ChatMessage("assistant", "Updated preview.")
+                    val assistantText = assistantReply?.takeIf { it.isNotBlank() } ?: "Updated preview."
+                    val assistantMessage = ChatMessage("assistant", assistantText)
                     val finalMessages = uiState.value.messages + assistantMessage
                     val preferredPath = actions.firstOrNull { it.path.equals("index.html", ignoreCase = true) }?.path
                         ?: actions.firstOrNull()?.path
@@ -1716,7 +1770,8 @@ $current
 ```
 
 Important instructions for this turn:
-- Return one or more write_file action(s) as needed.
+- If the user asks a question or asks for explanation only, return one reply action and do not modify files.
+- Return one or more write_file action(s) when file changes are needed.
 - Never include explanations or markdown before or after the XML action.
 - Never stop inside the XML action. Always finish with </content> and </action>.
 - Keep the generated file compact enough for mobile. Avoid unnecessary comments, huge CSS blocks, or repeated code.
@@ -1733,7 +1788,7 @@ Important instructions for this turn:
 User request:
 $userRequest
 
-Return the XML action now.
+Return the XML action(s) now.
         """.trimIndent()
     }
 
@@ -1923,6 +1978,20 @@ fun recoverWriteFileActions(text: String): List<WriteFileAction> {
     }
 
     return emptyList()
+}
+
+fun recoverAssistantReply(text: String): String? {
+    val replyAction = Regex(
+        pattern = """<action\s+name=["']reply["']>\s*<content>(.*?)</content>\s*</action>""",
+        options = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+    ).find(text)?.groupValues?.getOrNull(1)?.trim()
+    if (!replyAction.isNullOrBlank()) return cleanGeneratedFileContent(replyAction)
+
+    val stripped = text
+        .replace(Regex("""<action\s+name=["']write_file["'][\s\S]*?</action>""", RegexOption.IGNORE_CASE), "")
+        .replace(Regex("""<action\s+name=["']reply["'][\s\S]*?</action>""", RegexOption.IGNORE_CASE), "")
+        .trim()
+    return stripped.takeIf { it.isNotBlank() && !it.startsWith("<action", ignoreCase = true) }
 }
 
 fun recoverContentBlock(text: String): String? {
@@ -2122,8 +2191,15 @@ FULL FILE CONTENT HERE
 </content>
 </action>
 
+<action name="reply">
+<content>
+ASSISTANT REPLY HERE
+</content>
+</action>
+
 Rules:
 - You may return one or more write_file actions.
+- Use reply action when the user is asking a normal question and no file changes are required.
 - For edits, update only the needed files.
 - If the user asks for a different app, replace the current app completely.
 - You may use multiple files such as index.html, styles.css, app.js, and assets/*.
@@ -2137,7 +2213,7 @@ Rules:
 - Use min-height:100vh and grid/flex centering for standalone generated apps.
 - Use width:min(92vw, ...px) or similar responsive sizing instead of fixed wide layouts.
 - Keep the code simple and complete.
-- Do not write markdown or explanations outside XML.
+- Do not write markdown or explanations outside XML actions.
 - The XML must be complete and must end with </action>.
 """
 
