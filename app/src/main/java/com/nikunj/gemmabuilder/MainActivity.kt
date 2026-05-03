@@ -245,7 +245,6 @@ fun BuilderApp(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .navigationBarsPadding()
             .background(MaterialTheme.colorScheme.background)
     ) {
         val parentMaxWidth = maxWidth
@@ -319,7 +318,6 @@ fun MainBuilderContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(12.dp)
     ) {
         Header(
             state = state,
