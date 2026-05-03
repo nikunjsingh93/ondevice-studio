@@ -10,11 +10,15 @@ import android.os.Build
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioFormat
 import android.graphics.pdf.PdfRenderer
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -133,10 +137,14 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.mlkit.vision.common.InputImage
+import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+import com.google.mediapipe.tasks.genai.llminference.GraphOptions
+import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -148,6 +156,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
@@ -161,6 +170,7 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlin.math.max
+import kotlin.coroutines.resume
 
 private const val SAMPLE_PLACEHOLDER = "Build anything..."
 private val ORDERED_LIST_PREFIX = Regex("""^\d+\.\s+""")
@@ -180,6 +190,7 @@ private val OnDeviceDarkColors = darkColorScheme(
     secondary = Color(0xFF8DC2FF),
     secondaryContainer = Color(0xFF204A74)
 )
+private val audioTranscriptCache = mutableMapOf<String, Pair<Long, String>>()
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1607,6 +1618,11 @@ fun isPreviewableImageFile(path: String): Boolean {
         lower.endsWith(".heif")
 }
 
+fun isAudioFilePath(path: String): Boolean {
+    val ext = path.substringAfterLast('.', "").lowercase(Locale.US)
+    return isAudioExtension(ext)
+}
+
 data class ChatMessage(
     val role: String,
     val text: String,
@@ -1637,6 +1653,9 @@ data class BuilderUiState(
     val engineLabel: String = "Not loaded",
     val status: String = "Import a .litertlm model to begin.",
     val modelName: String = "Gemma model",
+    val modelSupportsMultimodal: Boolean = false,
+    val multimodalBackendReady: Boolean = false,
+    val activeRoutingMode: String = "text",
     val modelReady: Boolean = false,
     val gemmaLoaded: Boolean = false,
     val isBusy: Boolean = false,
@@ -1669,6 +1688,7 @@ class BuilderViewModel : ViewModel() {
     val uiState = _uiState.asStateFlow()
 
     private var engine: BuilderEngine = DemoBuilderEngine()
+    private var multimodalEngine: MediaPipeMultimodalEngine? = null
     private var prepared = false
     private var conversations: MutableList<ChatConversation> = mutableListOf()
     private var generationInProgress = false
@@ -1694,6 +1714,9 @@ class BuilderViewModel : ViewModel() {
                 activeConversationId = active.id,
                 messages = active.messages,
                 modelName = savedModelName(context),
+                modelSupportsMultimodal = isLikelyMultimodalModel(savedModelName(context)),
+                multimodalBackendReady = false,
+                activeRoutingMode = "text",
                 modelReady = hasModel,
                 chatFontScale = savedChatFontScale(context),
                 codeFontScale = savedCodeFontScale(context),
@@ -1850,7 +1873,13 @@ class BuilderViewModel : ViewModel() {
 
     fun importModel(context: Context, uri: Uri) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isBusy = true, status = "Importing model into app storage...") }
+            _uiState.update {
+                it.copy(
+                    isBusy = true,
+                    status = "Importing model into app storage...",
+                    messages = it.messages + ChatMessage("assistant", "Importing model into app storage...")
+                )
+            }
             val importedName = displayNameForUri(context.contentResolver, uri).ifBlank { "Gemma model" }
             val result = runCatching {
                 withContext(Dispatchers.IO) {
@@ -1863,13 +1892,21 @@ class BuilderViewModel : ViewModel() {
                     it.copy(
                         isBusy = false,
                         modelName = importedName,
+                        modelSupportsMultimodal = isLikelyMultimodalModel(importedName),
+                        multimodalBackendReady = false,
+                        activeRoutingMode = "text",
                         modelReady = true,
                         gemmaLoaded = false,
                         engineLabel = "Not loaded",
+                        messages = it.messages + ChatMessage("assistant", "$importedName imported. Send a message to load it automatically."),
                         status = "$importedName imported. Type a message and tap Send to auto-load."
                     )
                 } else {
-                    it.copy(isBusy = false, status = "Model import failed: ${result.exceptionOrNull()?.message ?: "unknown error"}")
+                    it.copy(
+                        isBusy = false,
+                        messages = it.messages + ChatMessage("assistant", "Model import failed: ${result.exceptionOrNull()?.message ?: "unknown error"}"),
+                        status = "Model import failed: ${result.exceptionOrNull()?.message ?: "unknown error"}"
+                    )
                 }
             }
         }
@@ -1954,6 +1991,7 @@ class BuilderViewModel : ViewModel() {
             newEngine.load()
             engine.close()
             engine = newEngine
+            ensureMultimodalBackend(context)
         }
         _uiState.update {
             if (result.isSuccess) {
@@ -1962,6 +2000,9 @@ class BuilderViewModel : ViewModel() {
                     gemmaLoaded = true,
                     engineLabel = savedModelName(context),
                     modelName = savedModelName(context),
+                    modelSupportsMultimodal = isLikelyMultimodalModel(savedModelName(context)),
+                    multimodalBackendReady = multimodalEngine?.isReady() == true,
+                    activeRoutingMode = "text",
                     status = "${savedModelName(context)} loaded. Sending message..."
                 )
             } else {
@@ -1974,6 +2015,14 @@ class BuilderViewModel : ViewModel() {
             }
         }
         return result.isSuccess
+    }
+
+    private fun ensureMultimodalBackend(context: Context) {
+        if (!uiState.value.modelSupportsMultimodal) return
+        if (multimodalEngine?.isReady() == true) return
+        multimodalEngine = MediaPipeMultimodalEngine(context.applicationContext, modelFile(context).absolutePath).apply {
+            load()
+        }
     }
 
     fun generate(context: Context) {
@@ -1994,6 +2043,12 @@ class BuilderViewModel : ViewModel() {
 
                 val pendingAttachments = uiState.value.pendingAttachments
                 val userMessage = ChatMessage("user", prompt, attachments = pendingAttachments)
+                val hasImageOrAudioAttachment = pendingAttachments.any { path ->
+                    isPreviewableImageFile(path) || isAudioFilePath(path)
+                }
+                val multimodalRoute = hasImageOrAudioAttachment &&
+                    uiState.value.modelSupportsMultimodal &&
+                    (multimodalEngine?.isReady() == true)
                 val pendingMessages = uiState.value.messages + userMessage
                 _uiState.update {
                     it.copy(
@@ -2004,10 +2059,40 @@ class BuilderViewModel : ViewModel() {
                         streamingCode = "",
                         lastRawResponse = "",
                         tab = 1,
-                        pendingAttachments = emptyList()
+                        pendingAttachments = emptyList(),
+                        activeRoutingMode = if (multimodalRoute) "multimodal" else "text"
                     )
                 }
                 persistActiveConversation(context, pendingMessages)
+
+                if (multimodalRoute) {
+                    val multimodalReply = withContext(Dispatchers.IO) {
+                        multimodalEngine?.generateResponse(
+                            prompt = prompt,
+                            root = activeProjectRoot(context),
+                            attachmentPaths = pendingAttachments
+                        ).orEmpty()
+                    }
+                    if (multimodalReply.isNotBlank()) {
+                        val assistantMessage = ChatMessage("assistant", multimodalReply)
+                        val finalMessages = uiState.value.messages + assistantMessage
+                        persistActiveConversation(context, finalMessages)
+                        _uiState.update {
+                            it.copy(
+                                isBusy = false,
+                                status = "Multimodal response ready.",
+                                messages = finalMessages,
+                                streamingCode = "",
+                                lastRawResponse = multimodalReply,
+                                tab = 0
+                            )
+                        }
+                        return@launch
+                    }
+                    _uiState.update {
+                        it.copy(status = "Multimodal route unavailable for this input; falling back to text route.")
+                    }
+                }
 
                 val basePrompt = withContext(Dispatchers.IO) { buildPrompt(context, prompt, pendingMessages, userMessage.attachments) }
                 var responseText = ""
@@ -2281,19 +2366,22 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
             else -> "index.html"
         }
         val current = runCatching { safeResolve(root, effectivePath).readText() }.getOrDefault("")
+        val modelNameNow = savedModelName(context)
         _uiState.update {
             it.copy(
                 indexHtmlPath = index.absolutePath,
                 selectedCodePath = effectivePath,
                 currentCode = current,
                 files = files,
-                modelName = savedModelName(context),
+                modelName = modelNameNow,
+                modelSupportsMultimodal = isLikelyMultimodalModel(modelNameNow),
+                multimodalBackendReady = multimodalEngine?.isReady() == true,
                 modelReady = modelFile(context).exists()
             )
         }
     }
 
-    private fun buildPrompt(
+    private suspend fun buildPrompt(
         context: Context,
         userRequest: String,
         messages: List<ChatMessage>,
@@ -2307,6 +2395,11 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
             preferredPaths = preferredAttachmentPaths,
             onlyPreferredWhenProvided = preferredAttachmentPaths.isNotEmpty()
         )
+        val multimodalHint = if (uiState.value.modelSupportsMultimodal) {
+            "Model capability routing: multimodal-capable model detected. Prioritize attached image/audio understanding first, then use extracted file text."
+        } else {
+            "Model capability routing: text-only model path. Use extracted OCR/transcript/file text provided by the app."
+        }
         val recent = messages.takeLast(8).joinToString("\n") { msg ->
             "${msg.role}: ${msg.text.take(1000)}"
         }
@@ -2323,6 +2416,8 @@ $current
 
 Additional imported/generated files context:
 $fileContext
+
+$multimodalHint
 
 Important instructions for this turn:
 - The app has already provided readable content from local imported files above (including extracted text from PDF/image/DOCX when available).
@@ -2367,6 +2462,8 @@ Return the XML action(s) now.
     override fun onCleared() {
         super.onCleared()
         engine.close()
+        multimodalEngine?.close()
+        multimodalEngine = null
     }
 }
 
@@ -2498,6 +2595,88 @@ class LiteRtGemmaEngine(
         runCatching { engine?.close() }
         engine = null
         conversationConfig = null
+    }
+}
+
+class MediaPipeMultimodalEngine(
+    private val context: Context,
+    private val modelPath: String
+) {
+    private var ready = false
+    private var llmInference: LlmInference? = null
+
+    fun load() {
+        runCatching {
+            close()
+            val options = LlmInference.LlmInferenceOptions.builder()
+                .setModelPath(modelPath)
+                .setMaxTokens(4096)
+                .setMaxNumImages(10)
+                .build()
+            llmInference = LlmInference.createFromOptions(context, options)
+            ready = true
+        }.onFailure {
+            ready = false
+            llmInference = null
+        }
+    }
+
+    fun isReady(): Boolean = ready
+
+    fun generateResponse(prompt: String, root: File, attachmentPaths: List<String>): String {
+        val inference = llmInference ?: return ""
+        if (attachmentPaths.isEmpty()) return ""
+        return runCatching {
+            val hasImage = attachmentPaths.any { isPreviewableImageFile(it) }
+            // Keep MediaPipe path image-first for stability; audio adapter availability
+            // varies by model/runtime and can trigger native aborts on unsupported models.
+            val hasAudio = false
+
+            val graphOptions = GraphOptions.builder()
+                .setEnableVisionModality(hasImage)
+                .setEnableAudioModality(hasAudio)
+                .build()
+
+            val sessionOptions = LlmInferenceSession.LlmInferenceSessionOptions.builder()
+                .setTopK(20)
+                .setTopP(0.9f)
+                .setTemperature(0.2f)
+                .setGraphOptions(graphOptions)
+                .build()
+
+            LlmInferenceSession.createFromOptions(inference, sessionOptions).use { session ->
+                session.addQueryChunk(prompt)
+                var addedAnyModality = false
+
+                attachmentPaths.forEach { relative ->
+                    val file = safeResolve(root, relative)
+                    if (!file.exists()) return@forEach
+                    when {
+                        isPreviewableImageFile(relative) -> {
+                            val bitmap = decodeScaledBitmap(file.absolutePath, maxSide = 1600) ?: return@forEach
+                            val mpImage = BitmapImageBuilder(bitmap).build()
+                            session.addImage(mpImage)
+                            addedAnyModality = true
+                        }
+                        isAudioFilePath(relative) -> Unit
+                    }
+                }
+                if (!addedAnyModality) return@use ""
+                session.generateResponse().trim()
+            }
+        }.getOrDefault("")
+    }
+
+    private fun readAudioForMediaPipe(file: File, path: String): ByteArray {
+        val ext = path.substringAfterLast('.', "").lowercase(Locale.US)
+        if (ext != "wav") return ByteArray(0)
+        return runCatching { file.readBytes() }.getOrDefault(ByteArray(0))
+    }
+
+    fun close() {
+        runCatching { llmInference?.close() }
+        llmInference = null
+        ready = false
     }
 }
 
@@ -2783,7 +2962,7 @@ if ('serviceWorker' in navigator) {
     }
 }
 
-private fun buildProjectContextForModel(
+private suspend fun buildProjectContextForModel(
     context: Context,
     root: File,
     preferredPaths: List<String> = emptyList(),
@@ -2854,6 +3033,10 @@ private fun buildProjectContextForModel(
                 val text = extractTextFromImageWithOcr(file)
                 appendFile(path, if (text.isNotBlank()) text else "(Image imported. No readable text detected.)")
             }
+            isAudioExtension(ext) -> {
+                val text = extractTextFromAudio(context, file)
+                appendFile(path, if (text.isNotBlank()) text else "(Audio imported. Could not transcribe on this device/format.)")
+            }
             else -> {
                 // Skip binary files without OCR/text extraction support.
             }
@@ -2871,6 +3054,131 @@ private fun isTextExtension(ext: String): Boolean = ext in setOf(
 private fun isImageExtension(ext: String): Boolean = ext in setOf(
     "png", "jpg", "jpeg", "webp", "bmp", "gif", "heic", "heif"
 )
+
+private fun isAudioExtension(ext: String): Boolean = ext in setOf(
+    "mp3", "wav", "m4a", "aac", "ogg", "opus", "flac", "3gp", "amr"
+)
+
+private suspend fun extractTextFromAudio(context: Context, file: File): String {
+    val cacheKey = file.absolutePath
+    val lastModified = file.lastModified()
+    audioTranscriptCache[cacheKey]?.let { (cachedMod, cachedText) ->
+        if (cachedMod == lastModified && cachedText.isNotBlank()) return cachedText
+    }
+
+    val transcript = transcribeAudioWithSpeechRecognizer(context, file)
+    val normalized = if (transcript.isBlank()) {
+        ""
+    } else {
+        "Audio transcript (${file.name}):\n$transcript"
+    }
+    audioTranscriptCache[cacheKey] = lastModified to normalized
+    return normalized
+}
+
+private suspend fun transcribeAudioWithSpeechRecognizer(context: Context, file: File): String {
+    if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+        return ""
+    }
+    val ext = file.extension.lowercase(Locale.US)
+    val strategies = mutableListOf<suspend () -> String>()
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        strategies += strategy@{
+            val uri = runCatching {
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            }.getOrNull() ?: return@strategy ""
+            recognizeAudioIntent(
+                context = context,
+                intentBuilder = {
+                    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        @Suppress("DEPRECATION")
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_INJECT_SOURCE, uri)
+                        data = uri
+                    }
+                },
+                pfd = null
+            )
+        }
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        strategies += strategy@{
+            val pfd = runCatching { ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) }.getOrNull()
+                ?: return@strategy ""
+            recognizeAudioIntent(
+                context = context,
+                intentBuilder = {
+                    Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                        putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, pfd)
+                        putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
+                        if (ext == "wav") {
+                            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+                            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+                            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16000)
+                        }
+                    }
+                },
+                pfd = pfd
+            )
+        }
+    }
+
+    for (strategy in strategies) {
+        val result = runCatching { strategy() }.getOrDefault("").trim()
+        if (result.isNotBlank()) return result
+    }
+    return ""
+}
+
+private suspend fun recognizeAudioIntent(
+    context: Context,
+    intentBuilder: () -> Intent,
+    pfd: ParcelFileDescriptor?
+): String {
+    return withContext(Dispatchers.Main) {
+        suspendCancellableCoroutine { cont ->
+            val recognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            val finish: (String) -> Unit = { text ->
+                runCatching { pfd?.close() }
+                runCatching { recognizer.cancel() }
+                runCatching { recognizer.destroy() }
+                if (cont.isActive) cont.resume(text.trim())
+            }
+            recognizer.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) = Unit
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+                override fun onEndOfSpeech() = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onResults(results: Bundle?) {
+                    val matches = results
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.filter { it.isNotBlank() }
+                        .orEmpty()
+                    finish(matches.joinToString("\n"))
+                }
+                override fun onError(error: Int) = finish("")
+            })
+
+            cont.invokeOnCancellation {
+                runCatching { pfd?.close() }
+                runCatching { recognizer.cancel() }
+                runCatching { recognizer.destroy() }
+            }
+
+            runCatching { recognizer.startListening(intentBuilder()) }
+                .onFailure { finish("") }
+        }
+    }
+}
 
 private fun extractTextFromImageWithOcr(file: File): String {
     return runCatching {
@@ -3074,6 +3382,15 @@ fun savedModelName(context: Context): String =
         ?.takeIf { it.isNotBlank() }
         ?: modelFile(context).takeIf { it.exists() }?.name
         ?: "Gemma model"
+
+fun isLikelyMultimodalModel(name: String): Boolean {
+    val lower = name.lowercase(Locale.US)
+    return lower.contains("multimodal") ||
+        lower.contains("vision") ||
+        lower.contains("audio") ||
+        lower.contains("3n") ||
+        lower.contains("e2b")
+}
 
 fun saveModelName(context: Context, name: String) {
     context.getSharedPreferences("settings", Context.MODE_PRIVATE)
