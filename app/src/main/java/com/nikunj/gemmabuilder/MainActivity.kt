@@ -135,8 +135,10 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -2876,7 +2878,11 @@ private fun extractTextFromImageWithOcr(file: File): String {
             if (enhancedText.length > best.length) best = enhancedText
         }
         recognizer.close()
-        best
+        if (best.isNotBlank()) {
+            best
+        } else {
+            describeImageWithLabels(file)
+        }
     }.getOrDefault("")
 }
 
@@ -2900,6 +2906,26 @@ private fun enhanceBitmapForOcr(source: Bitmap): Bitmap {
 
     out.setPixels(pixels, 0, width, 0, 0, width, height)
     return out
+}
+
+private fun describeImageWithLabels(file: File): String {
+    return runCatching {
+        val bitmap = decodeScaledBitmap(file.absolutePath, maxSide = 1600) ?: return@runCatching ""
+        val options = ImageLabelerOptions.Builder()
+            .setConfidenceThreshold(0.55f)
+            .build()
+        val labeler = ImageLabeling.getClient(options)
+        val labels = Tasks.await(labeler.process(InputImage.fromBitmap(bitmap, 0)))
+        labeler.close()
+        if (labels.isEmpty()) return@runCatching ""
+        val summary = labels
+            .sortedByDescending { it.confidence }
+            .take(6)
+            .joinToString(", ") { label ->
+            "${label.text} (${(label.confidence * 100).toInt()}%)"
+        }
+        "No readable text detected. Visual content likely includes: $summary."
+    }.getOrDefault("")
 }
 
 private fun extractTextFromPdf(file: File): String {
