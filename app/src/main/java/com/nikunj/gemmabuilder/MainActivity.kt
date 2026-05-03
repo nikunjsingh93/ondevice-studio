@@ -61,6 +61,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -221,6 +222,7 @@ fun BuilderApp(
     )
 
     var pendingExportPath by remember { mutableStateOf<String?>(null) }
+    var settingsScreenOpen by remember { mutableStateOf(false) }
     val fileSaver = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/html"),
         onResult = { uri ->
@@ -257,6 +259,7 @@ fun BuilderApp(
                 compact = compact,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,
+                onOpenSettings = { settingsScreenOpen = true },
                 onToggleSidebar = { vm.toggleSidebar() },
                 onImportModel = { modelPicker.launch(arrayOf("*/*")) },
                 onImportFiles = { fileImporter.launch(arrayOf("*/*")) },
@@ -273,6 +276,15 @@ fun BuilderApp(
                 },
                 onSaveZip = { zipSaver.launch("GemmaAndroidBuilderProject.zip") }
             )
+            if (settingsScreenOpen) {
+                SettingsDialog(
+                    chatFontScale = state.chatFontScale,
+                    codeFontScale = state.codeFontScale,
+                    onChatFontScale = { vm.setChatFontScale(context.applicationContext, it) },
+                    onCodeFontScale = { vm.setCodeFontScale(context.applicationContext, it) },
+                    onDismiss = { settingsScreenOpen = false }
+                )
+            }
 
             if (state.sidebarOpen) {
                 Row(Modifier.fillMaxSize()) {
@@ -306,6 +318,7 @@ fun MainBuilderContent(
     compact: Boolean,
     themeMode: String,
     onThemeModeChange: (String) -> Unit,
+    onOpenSettings: () -> Unit,
     onToggleSidebar: () -> Unit,
     onImportModel: () -> Unit,
     onImportFiles: () -> Unit,
@@ -327,6 +340,7 @@ fun MainBuilderContent(
             state = state,
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
+            onOpenSettings = onOpenSettings,
             onToggleSidebar = onToggleSidebar,
             onImportModel = onImportModel
         )
@@ -344,7 +358,8 @@ fun MainBuilderContent(
                         .weight(0.48f),
                     state = state,
                     onPromptChange = onPromptChange,
-                    onGenerate = onGenerate
+                    onGenerate = onGenerate,
+                    chatFontScale = state.chatFontScale
                 )
                 WorkPanel(
                     modifier = Modifier
@@ -382,7 +397,8 @@ fun MainBuilderContent(
                                 .fillMaxHeight(),
                             state = state,
                             onPromptChange = onPromptChange,
-                            onGenerate = onGenerate
+                            onGenerate = onGenerate,
+                            chatFontScale = state.chatFontScale
                         )
                     }
                     Box(
@@ -393,7 +409,7 @@ fun MainBuilderContent(
                             .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small)
                             .clickable { onToggleWorkPanelCollapsed() },
                         contentAlignment = Alignment.Center
-                    ) { Text("▴", fontWeight = FontWeight.Bold) }
+                    ) { Text("◀", fontWeight = FontWeight.Bold) }
                 }
             } else {
                 Row(
@@ -408,7 +424,8 @@ fun MainBuilderContent(
                             .fillMaxHeight(),
                         state = state,
                         onPromptChange = onPromptChange,
-                        onGenerate = onGenerate
+                        onGenerate = onGenerate,
+                        chatFontScale = state.chatFontScale
                     )
                     WorkPanel(
                         modifier = Modifier.fillMaxSize(),
@@ -458,6 +475,7 @@ fun FullscreenCodePane(state: BuilderUiState) {
         Spacer(Modifier.height(8.dp))
         AutoScrollingCodeText(
             text = codeTextForDisplay(state),
+            fontScale = state.codeFontScale,
             modifier = Modifier.fillMaxSize()
         )
     }
@@ -468,6 +486,7 @@ fun Header(
     state: BuilderUiState,
     themeMode: String,
     onThemeModeChange: (String) -> Unit,
+    onOpenSettings: () -> Unit,
     onToggleSidebar: () -> Unit,
     onImportModel: () -> Unit
 ) {
@@ -531,6 +550,10 @@ fun Header(
                     DropdownMenuItem(
                         text = { Text(if (state.modelReady) "Change model" else "Import model") },
                         onClick = { settingsOpen = false; onImportModel() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Settings") },
+                        onClick = { settingsOpen = false; onOpenSettings() }
                     )
                     DropdownMenuItem(
                         text = { Text(if (themeMode == "system") "✓ System theme" else "System theme") },
@@ -659,7 +682,8 @@ fun ChatPanel(
     modifier: Modifier = Modifier,
     state: BuilderUiState,
     onPromptChange: (String) -> Unit,
-    onGenerate: () -> Unit
+    onGenerate: () -> Unit,
+    chatFontScale: Float
 ) {
     val configuration = LocalConfiguration.current
     val landscapeKeyboardLift = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -683,7 +707,7 @@ fun ChatPanel(
                 if (state.messages.isEmpty()) {
                     Text(
                         text = "Start by describing the web app you want. The result will appear in the preview below.",
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -691,9 +715,9 @@ fun ChatPanel(
                             .padding(12.dp)
                     )
                 } else {
-                    state.messages.forEach { msg -> MessageBubble(msg) }
+                    state.messages.forEach { msg -> MessageBubble(msg, chatFontScale) }
                     if (state.isBusy) {
-                        ProcessingBubble(state.status)
+                        ProcessingBubble(state.status, chatFontScale)
                     }
                 }
             }
@@ -731,7 +755,7 @@ fun ChatPanel(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(message: ChatMessage) {
+fun MessageBubble(message: ChatMessage, chatFontScale: Float) {
     val mine = message.role == "user"
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -773,13 +797,13 @@ fun MessageBubble(message: ChatMessage) {
             )
         }
         Spacer(Modifier.height(3.dp))
-        Text(message.text, style = MaterialTheme.typography.bodySmall)
+        Text(message.text, style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale))
         }
     }
 }
 
 @Composable
-fun ProcessingBubble(status: String) {
+fun ProcessingBubble(status: String, chatFontScale: Float) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -800,7 +824,7 @@ fun ProcessingBubble(status: String) {
                 status.contains("Generating", ignoreCase = true) || status.contains("Thinking", ignoreCase = true) -> "Thinking..."
                 else -> "Processing..."
             },
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale),
             color = MaterialTheme.colorScheme.onSecondaryContainer
         )
     }
@@ -827,7 +851,7 @@ fun AutoScrollingMonospaceText(text: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun AutoScrollingCodeText(text: String, modifier: Modifier = Modifier) {
+fun AutoScrollingCodeText(text: String, fontScale: Float = 1f, modifier: Modifier = Modifier) {
     val scrollState = rememberScrollState()
     LaunchedEffect(text) {
         delay(40)
@@ -837,7 +861,7 @@ fun AutoScrollingCodeText(text: String, modifier: Modifier = Modifier) {
         Text(
             text = syntaxHighlightCode(text),
             fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * fontScale),
             modifier = modifier
                 .verticalScroll(scrollState)
                 .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
@@ -922,6 +946,8 @@ fun WorkPanel(
     onSaveFile: (String) -> Unit,
     onSaveZip: () -> Unit
 ) {
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = modifier
@@ -954,7 +980,7 @@ fun WorkPanel(
                         .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small)
                         .clickable { onToggleWorkPanelCollapsed() },
                     contentAlignment = Alignment.Center
-                ) { Text(if (state.workPanelCollapsed) "▴" else "▾", fontWeight = FontWeight.Bold) }
+                ) { Text(if (isLandscape) (if (state.workPanelCollapsed) "◀" else "▶") else (if (state.workPanelCollapsed) "▴" else "▾"), fontWeight = FontWeight.Bold) }
                 Box(modifier = Modifier.weight(1f)) {
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -1153,9 +1179,33 @@ fun CodePane(state: BuilderUiState) {
         Spacer(Modifier.height(8.dp))
         AutoScrollingCodeText(
             text = codeTextForDisplay(state),
+            fontScale = state.codeFontScale,
             modifier = Modifier.fillMaxSize()
         )
     }
+}
+
+@Composable
+fun SettingsDialog(
+    chatFontScale: Float,
+    codeFontScale: Float,
+    onChatFontScale: (Float) -> Unit,
+    onCodeFontScale: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Settings") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Chat font size: ${"%.2f".format(Locale.US, chatFontScale)}x")
+                Slider(value = chatFontScale, onValueChange = onChatFontScale, valueRange = 0.8f..1.8f)
+                Text("Code font size: ${"%.2f".format(Locale.US, codeFontScale)}x")
+                Slider(value = codeFontScale, onValueChange = onCodeFontScale, valueRange = 0.8f..1.8f)
+            }
+        },
+        confirmButton = { Button(onClick = onDismiss) { Text("Done") } }
+    )
 }
 
 @Composable
@@ -1272,7 +1322,9 @@ data class BuilderUiState(
     val lastRawResponse: String = "",
     val streamingCode: String = "",
     val previewFullscreen: Boolean = false,
-    val workPanelCollapsed: Boolean = false
+    val workPanelCollapsed: Boolean = false,
+    val chatFontScale: Float = 1f,
+    val codeFontScale: Float = 1f
 )
 
 data class WriteFileAction(val path: String, val content: String)
@@ -1312,6 +1364,8 @@ class BuilderViewModel : ViewModel() {
                 messages = active.messages,
                 modelName = savedModelName(context),
                 modelReady = hasModel,
+                chatFontScale = savedChatFontScale(context),
+                codeFontScale = savedCodeFontScale(context),
                 status = if (hasModel) "${savedModelName(context)} found. Type a message and tap Send to auto-load." else "Import a .litertlm model from the ⋮ menu."
             )
         }
@@ -1319,6 +1373,16 @@ class BuilderViewModel : ViewModel() {
 
     fun toggleSidebar() {
         _uiState.update { it.copy(sidebarOpen = !it.sidebarOpen) }
+    }
+
+    fun setChatFontScale(context: Context, scale: Float) {
+        saveChatFontScale(context, scale)
+        _uiState.update { it.copy(chatFontScale = scale) }
+    }
+
+    fun setCodeFontScale(context: Context, scale: Float) {
+        saveCodeFontScale(context, scale)
+        _uiState.update { it.copy(codeFontScale = scale) }
     }
 
     fun newConversation(context: Context) {
@@ -2196,6 +2260,30 @@ fun saveModelName(context: Context, name: String) {
     context.getSharedPreferences("settings", Context.MODE_PRIVATE)
         .edit()
         .putString("modelName", name.ifBlank { "Gemma model" })
+        .apply()
+}
+
+fun savedChatFontScale(context: Context): Float =
+    context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .getFloat("chatFontScale", 1f)
+        .coerceIn(0.8f, 1.8f)
+
+fun saveChatFontScale(context: Context, scale: Float) {
+    context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .edit()
+        .putFloat("chatFontScale", scale.coerceIn(0.8f, 1.8f))
+        .apply()
+}
+
+fun savedCodeFontScale(context: Context): Float =
+    context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .getFloat("codeFontScale", 1f)
+        .coerceIn(0.8f, 1.8f)
+
+fun saveCodeFontScale(context: Context, scale: Float) {
+    context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .edit()
+        .putFloat("codeFontScale", scale.coerceIn(0.8f, 1.8f))
         .apply()
 }
 
