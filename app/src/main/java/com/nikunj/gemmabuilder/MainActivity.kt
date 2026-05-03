@@ -83,6 +83,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -98,6 +99,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
+import androidx.core.graphics.ColorUtils
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import androidx.webkit.WebViewAssetLoader
@@ -769,8 +771,11 @@ fun MessageBubble(message: ChatMessage, chatFontScale: Float) {
     val mine = message.role == "user"
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
-    val bg = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    val label = if (mine) "You" else "Gemma"
+    val dark = ColorUtils.calculateLuminance(MaterialTheme.colorScheme.background.toArgb()) < 0.5
+    val userBubbleColor = if (dark) Color(0xFF2E3137) else Color(0xFFE8E8E8)
+    val userTextColor = if (dark) Color(0xFFF3F4F6) else Color(0xFF121417)
+    val assistantTextColor = if (dark) Color(0xFFE5E7EB) else Color(0xFF17191C)
+    val metaColor = if (dark) Color(0xFFA1A1AA) else Color(0xFF71717A)
     val bubbleModifier = Modifier
         .fillMaxWidth(if (mine) 0.60f else 1f)
         .then(
@@ -786,58 +791,66 @@ fun MessageBubble(message: ChatMessage, chatFontScale: Float) {
                 Modifier
             }
         )
-    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+    if (!mine) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 2.dp, vertical = 2.dp)
+        ) {
+            Text(
+                message.text,
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale),
+                color = assistantTextColor
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = formatChatTimestamp(message.timestamp),
+                style = MaterialTheme.typography.labelSmall,
+                color = metaColor
+            )
+        }
+        return
+    }
+    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Column(
             modifier = bubbleModifier
-                .background(bg, MaterialTheme.shapes.medium)
+                .background(userBubbleColor, MaterialTheme.shapes.medium)
                 .padding(10.dp)
         ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
                 text = formatChatTimestamp(message.timestamp),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = metaColor,
+                modifier = Modifier.weight(1f)
             )
         }
         Spacer(Modifier.height(3.dp))
-        Text(message.text, style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale))
+        Text(
+            message.text,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale),
+            color = userTextColor
+        )
         }
     }
 }
 
 @Composable
 fun ProcessingBubble(status: String, chatFontScale: Float) {
-    Column(
+    val dark = ColorUtils.calculateLuminance(MaterialTheme.colorScheme.background.toArgb()) < 0.5
+    val metaColor = if (dark) Color(0xFFA1A1AA) else Color(0xFF71717A)
+    Text(
+        text = when {
+            status.contains("Loading", ignoreCase = true) -> "Loading model..."
+            status.contains("Thinking", ignoreCase = true) || status.contains("Generating", ignoreCase = true) -> "Thinking..."
+            else -> "Processing..."
+        },
+        style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale),
+        color = metaColor,
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.medium)
-            .padding(10.dp)
-    ) {
-        Text(
-            text = "Gemma",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSecondaryContainer
-        )
-        Spacer(Modifier.height(3.dp))
-        Text(
-            text = when {
-                status.contains("Writing", ignoreCase = true) || status.contains("Streaming", ignoreCase = true) -> "Writing code..."
-                status.contains("Loading", ignoreCase = true) -> "Loading model..."
-                status.contains("Generating", ignoreCase = true) || status.contains("Thinking", ignoreCase = true) -> "Thinking..."
-                else -> "Processing..."
-            },
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale),
-            color = MaterialTheme.colorScheme.onSecondaryContainer
-        )
-    }
+            .padding(vertical = 4.dp, horizontal = 2.dp)
+    )
 }
 
 @Composable
@@ -1666,7 +1679,7 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
 
                     _uiState.update {
                         it.copy(
-                            status = if (attempt == 1) "Writing code..." else "Output was incomplete. Retrying $attempt/$maxAttempts...",
+                            status = if (attempt == 1) "Thinking..." else "Retrying $attempt/$maxAttempts...",
                             streamingCode = if (attempt == 1) "" else it.streamingCode
                         )
                     }
@@ -1680,7 +1693,7 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                                 val streamed = output.toString()
                                 _uiState.update {
                                     it.copy(
-                                        status = "Writing code... attempt $attempt/$maxAttempts • ${output.length} chars",
+                                        status = "Thinking... attempt $attempt/$maxAttempts • ${output.length} chars",
                                         lastRawResponse = streamed,
                                         streamingCode = extractStreamingCode(streamed)
                                     )
