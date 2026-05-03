@@ -8,10 +8,14 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfRenderer
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -109,11 +113,15 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewModelScope
+import com.google.android.gms.tasks.Tasks
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -133,6 +141,7 @@ import java.util.Locale
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlin.math.max
 
 private const val SAMPLE_PLACEHOLDER = "Build anything..."
 
@@ -1680,7 +1689,7 @@ class BuilderViewModel : ViewModel() {
                 }
                 persistActiveConversation(context, pendingMessages)
 
-                val basePrompt = buildPrompt(context, prompt, pendingMessages)
+                val basePrompt = withContext(Dispatchers.IO) { buildPrompt(context, prompt, pendingMessages) }
                 var responseText = ""
                 var actions: List<WriteFileAction> = emptyList()
                 var assistantReply: String? = null
@@ -1933,6 +1942,7 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
     private fun buildPrompt(context: Context, userRequest: String, messages: List<ChatMessage>): String {
         val root = activeProjectRoot(context)
         val current = htmlContextForModel(File(root, "index.html").takeIf { it.exists() }?.readText().orEmpty())
+        val fileContext = buildProjectContextForModel(context, root)
         val recent = messages.takeLast(8).joinToString("\n") { msg ->
             "${msg.role}: ${msg.text.take(1000)}"
         }
@@ -1946,6 +1956,9 @@ Current index.html (if present):
 ```html
 $current
 ```
+
+Additional imported/generated files context:
+$fileContext
 
 Important instructions for this turn:
 - If the user asks a question or asks for explanation only, return one reply action and do not modify files.
@@ -2255,6 +2268,120 @@ fun safeResolve(root: File, relativePath: String): File {
     val outPath = out.canonicalPath
     require(outPath.startsWith(rootPath)) { "Invalid path outside project root." }
     return out
+}
+
+private fun buildProjectContextForModel(context: Context, root: File): String {
+    val files = root.walkTopDown()
+        .filter { it.isFile }
+        .map { it.relativeTo(root).path.replace('\\', '/') to it }
+        .filter { (path, _) -> !path.equals("index.html", ignoreCase = true) }
+        .sortedBy { it.first }
+        .toList()
+
+    if (files.isEmpty()) return "(none)"
+
+    val maxTotalChars = 24000
+    val perFileLimit = 5000
+    val out = StringBuilder()
+
+    fun appendFile(path: String, content: String) {
+        if (content.isBlank()) return
+        if (out.length >= maxTotalChars) return
+        val remaining = maxTotalChars - out.length
+        val clipped = content.take(minOf(perFileLimit, remaining))
+        out.appendLine("<<<FILE:$path>>>")
+        out.appendLine(clipped)
+        out.appendLine("<<<END_FILE>>>")
+    }
+
+    files.forEach { (path, file) ->
+        if (out.length >= maxTotalChars) return@forEach
+        val ext = path.substringAfterLast('.', "").lowercase(Locale.US)
+        when {
+            isTextExtension(ext) -> {
+                val text = runCatching { file.readText() }.getOrDefault("")
+                appendFile(path, text)
+            }
+            ext == "pdf" -> {
+                val text = extractTextFromPdfWithOcr(file)
+                appendFile(path, if (text.isNotBlank()) text else "(PDF imported. Could not extract text.)")
+            }
+            isImageExtension(ext) -> {
+                val text = extractTextFromImageWithOcr(file)
+                appendFile(path, if (text.isNotBlank()) text else "(Image imported. No readable text detected.)")
+            }
+            else -> {
+                // Skip binary files without OCR/text extraction support.
+            }
+        }
+    }
+
+    return out.toString().ifBlank { "(none)" }
+}
+
+private fun isTextExtension(ext: String): Boolean = ext in setOf(
+    "txt", "md", "json", "js", "mjs", "ts", "tsx", "jsx", "css", "scss", "sass",
+    "html", "htm", "xml", "csv", "tsv", "yaml", "yml", "toml", "ini", "log"
+)
+
+private fun isImageExtension(ext: String): Boolean = ext in setOf(
+    "png", "jpg", "jpeg", "webp", "bmp", "gif", "heic", "heif"
+)
+
+private fun extractTextFromImageWithOcr(file: File): String {
+    return runCatching {
+        val bitmap = decodeScaledBitmap(file.absolutePath, maxSide = 1600) ?: return@runCatching ""
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val result = Tasks.await(recognizer.process(image))
+        recognizer.close()
+        result.text.trim()
+    }.getOrDefault("")
+}
+
+private fun extractTextFromPdfWithOcr(file: File): String {
+    return runCatching {
+        ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
+            PdfRenderer(pfd).use { renderer ->
+                val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                val sb = StringBuilder()
+                val maxPages = minOf(renderer.pageCount, 4)
+                for (i in 0 until maxPages) {
+                    renderer.openPage(i).use { page ->
+                        val width = max(1, page.width * 2)
+                        val height = max(1, page.height * 2)
+                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        val image = InputImage.fromBitmap(bitmap, 0)
+                        val result = Tasks.await(recognizer.process(image))
+                        val text = result.text.trim()
+                        if (text.isNotBlank()) {
+                            sb.appendLine("Page ${i + 1}:")
+                            sb.appendLine(text)
+                            sb.appendLine()
+                        }
+                    }
+                }
+                recognizer.close()
+                sb.toString().trim()
+            }
+        }
+    }.getOrDefault("")
+}
+
+private fun decodeScaledBitmap(path: String, maxSide: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    val srcW = bounds.outWidth
+    val srcH = bounds.outHeight
+    if (srcW <= 0 || srcH <= 0) return null
+
+    var sample = 1
+    while (srcW / sample > maxSide || srcH / sample > maxSide) {
+        sample *= 2
+    }
+    val opts = BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888 }
+    return BitmapFactory.decodeFile(path, opts)
 }
 
 fun sanitizeImportedFileName(name: String): String {
