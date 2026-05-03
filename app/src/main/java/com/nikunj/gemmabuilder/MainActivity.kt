@@ -109,8 +109,11 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.OpenInNew
 import androidx.core.content.FileProvider
@@ -250,6 +253,10 @@ fun BuilderApp(
         contract = ActivityResultContracts.OpenMultipleDocuments(),
         onResult = { uris -> if (uris.isNotEmpty()) vm.importFiles(context.applicationContext, uris) }
     )
+    val photoImporter = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents(),
+        onResult = { uris -> if (uris.isNotEmpty()) vm.importFiles(context.applicationContext, uris) }
+    )
 
     var pendingExportPath by remember { mutableStateOf<String?>(null) }
     var settingsScreenOpen by remember { mutableStateOf(false) }
@@ -297,6 +304,7 @@ fun BuilderApp(
                 onToggleSidebar = { vm.toggleSidebar() },
                 onImportModel = { modelPicker.launch(arrayOf("*/*")) },
                 onImportFiles = { fileImporter.launch(arrayOf("*/*")) },
+                onImportPhotos = { photoImporter.launch("image/*") },
                 onPromptChange = vm::setPrompt,
                 onGenerate = { vm.generate(context.applicationContext) },
                 onTab = vm::setTab,
@@ -358,6 +366,7 @@ fun MainBuilderContent(
     onToggleSidebar: () -> Unit,
     onImportModel: () -> Unit,
     onImportFiles: () -> Unit,
+    onImportPhotos: () -> Unit,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
     onTab: (Int) -> Unit,
@@ -420,6 +429,8 @@ fun MainBuilderContent(
                     state = state,
                     onPromptChange = onPromptChange,
                     onGenerate = onGenerate,
+                    onAddPhotos = onImportPhotos,
+                    onAddFiles = onImportFiles,
                     chatFontScale = state.chatFontScale,
                     liftInputForKeyboard = state.workPanelCollapsed
                 )
@@ -462,6 +473,8 @@ fun MainBuilderContent(
                             state = state,
                             onPromptChange = onPromptChange,
                             onGenerate = onGenerate,
+                            onAddPhotos = onImportPhotos,
+                            onAddFiles = onImportFiles,
                             chatFontScale = state.chatFontScale,
                             liftInputForKeyboard = false
                         )
@@ -490,6 +503,8 @@ fun MainBuilderContent(
                         state = state,
                         onPromptChange = onPromptChange,
                         onGenerate = onGenerate,
+                        onAddPhotos = onImportPhotos,
+                        onAddFiles = onImportFiles,
                         chatFontScale = state.chatFontScale,
                         liftInputForKeyboard = false
                     )
@@ -751,6 +766,8 @@ fun ChatPanel(
     state: BuilderUiState,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
+    onAddPhotos: () -> Unit,
+    onAddFiles: () -> Unit,
     chatFontScale: Float,
     liftInputForKeyboard: Boolean
 ) {
@@ -810,6 +827,27 @@ fun ChatPanel(
                 }
             }
             Spacer(Modifier.height(8.dp))
+            if (state.pendingAttachments.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    state.pendingAttachments.forEach { name ->
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small)
+                                .padding(horizontal = 8.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+            var addMenuOpen by remember { mutableStateOf(false) }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -817,6 +855,26 @@ fun ChatPanel(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Box {
+                    IconButton(
+                        onClick = { addMenuOpen = true },
+                        enabled = !state.isBusy
+                    ) {
+                        Icon(Icons.Outlined.Add, contentDescription = "Add attachments")
+                    }
+                    DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Add photos") },
+                            leadingIcon = { Icon(Icons.Outlined.Image, contentDescription = null) },
+                            onClick = { addMenuOpen = false; onAddPhotos() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Add files") },
+                            leadingIcon = { Icon(Icons.Outlined.AttachFile, contentDescription = null) },
+                            onClick = { addMenuOpen = false; onAddFiles() }
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = state.prompt,
                     onValueChange = onPromptChange,
@@ -907,6 +965,27 @@ fun MessageBubble(message: ChatMessage, chatFontScale: Float) {
             style = MaterialTheme.typography.bodySmall.copy(fontSize = MaterialTheme.typography.bodySmall.fontSize * chatFontScale),
             color = userTextColor
         )
+        if (message.attachments.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                message.attachments.forEach { name ->
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = userTextColor,
+                        modifier = Modifier
+                            .background(userBubbleColor.copy(alpha = if (dark) 0.85f else 0.95f), MaterialTheme.shapes.small)
+                            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), MaterialTheme.shapes.small)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
         }
     }
 }
@@ -1436,7 +1515,12 @@ fun isCodeFile(path: String): Boolean {
         lower.endsWith(".xml")
 }
 
-data class ChatMessage(val role: String, val text: String, val timestamp: Long = System.currentTimeMillis())
+data class ChatMessage(
+    val role: String,
+    val text: String,
+    val timestamp: Long = System.currentTimeMillis(),
+    val attachments: List<String> = emptyList()
+)
 
 data class ChatConversation(
     val id: String,
@@ -1476,7 +1560,8 @@ data class BuilderUiState(
     val previewFullscreen: Boolean = false,
     val workPanelCollapsed: Boolean = false,
     val chatFontScale: Float = 1.2f,
-    val codeFontScale: Float = 1f
+    val codeFontScale: Float = 1f,
+    val pendingAttachments: List<String> = emptyList()
 )
 
 data class WriteFileAction(val path: String, val content: String)
@@ -1700,12 +1785,15 @@ class BuilderViewModel : ViewModel() {
     fun importFiles(context: Context, uris: List<Uri>) {
         viewModelScope.launch {
             _uiState.update { it.copy(isBusy = true, status = "Importing file(s) into this chat...") }
+            val importedNames = uris.map { uri ->
+                sanitizeImportedFileName(displayNameForUri(context.contentResolver, uri, fallback = "imported-file"))
+            }
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     val root = activeProjectRoot(context)
                     root.mkdirs()
-                    uris.forEach { uri ->
-                        val name = sanitizeImportedFileName(displayNameForUri(context.contentResolver, uri, fallback = "imported-file"))
+                    uris.forEachIndexed { index, uri ->
+                        val name = importedNames.getOrElse(index) { "imported-file" }
                         context.contentResolver.openInputStream(uri).use { input ->
                             requireNotNull(input) { "Could not open selected file: $name" }
                             safeResolve(root, name).outputStream().use { output -> input.copyTo(output) }
@@ -1721,7 +1809,8 @@ class BuilderViewModel : ViewModel() {
                         status = "Imported ${uris.size} file(s) into this chat workspace.",
                         tab = 0,
                         previewVersion = it.previewVersion + 1,
-                        lastWrittenPaths = uris.map { uri -> sanitizeImportedFileName(displayNameForUri(context.contentResolver, uri, fallback = "imported-file")) }
+                        lastWrittenPaths = importedNames,
+                        pendingAttachments = (it.pendingAttachments + importedNames).distinct().takeLast(12)
                     )
                 } else {
                     it.copy(
@@ -1787,7 +1876,8 @@ class BuilderViewModel : ViewModel() {
                     if (!loaded) return@launch
                 }
 
-                val userMessage = ChatMessage("user", prompt)
+                val pendingAttachments = uiState.value.pendingAttachments
+                val userMessage = ChatMessage("user", prompt, attachments = pendingAttachments)
                 val pendingMessages = uiState.value.messages + userMessage
                 _uiState.update {
                     it.copy(
@@ -1797,7 +1887,8 @@ class BuilderViewModel : ViewModel() {
                         messages = pendingMessages,
                         streamingCode = "",
                         lastRawResponse = "",
-                        tab = 1
+                        tab = 1,
+                        pendingAttachments = emptyList()
                     )
                 }
                 persistActiveConversation(context, pendingMessages)
@@ -2181,8 +2272,22 @@ fun readConversationFile(file: File): ChatConversation {
             line.startsWith("title\t") -> title = decodeText(line.substringAfter("title\t"))
             line.startsWith("updated\t") -> updatedAt = line.substringAfter("updated\t").toLongOrNull() ?: updatedAt
             line.startsWith("msg	") -> {
-                val parts = line.split("	", limit = 4)
+                val parts = line.split("	", limit = 5)
                 when {
+                    parts.size >= 5 -> {
+                        val attachments = decodeText(parts[4])
+                            .split('|')
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                        messages.add(
+                            ChatMessage(
+                                role = parts[1],
+                                text = decodeText(parts[3]),
+                                timestamp = parts[2].toLongOrNull() ?: updatedAt,
+                                attachments = attachments
+                            )
+                        )
+                    }
                     parts.size == 4 -> messages.add(ChatMessage(parts[1], decodeText(parts[3]), parts[2].toLongOrNull() ?: updatedAt))
                     parts.size == 3 -> messages.add(ChatMessage(parts[1], decodeText(parts[2]), updatedAt))
                 }
@@ -2199,7 +2304,10 @@ fun saveConversationFile(context: Context, conversation: ChatConversation) {
     val text = buildString {
         appendLine("title\t${encodeText(conversation.title)}")
         appendLine("updated\t${conversation.updatedAt}")
-        conversation.messages.forEach { msg -> appendLine("msg\t${msg.role}\t${msg.timestamp}\t${encodeText(msg.text)}") }
+        conversation.messages.forEach { msg ->
+            val attachmentsEncoded = encodeText(msg.attachments.joinToString("|"))
+            appendLine("msg\t${msg.role}\t${msg.timestamp}\t${encodeText(msg.text)}\t$attachmentsEncoded")
+        }
     }
     file.writeText(text)
 }
