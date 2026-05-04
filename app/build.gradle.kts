@@ -50,8 +50,6 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:image-labeling:17.0.9")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    implementation("com.google.mediapipe:tasks-core:0.10.33")
-    implementation("com.google.mediapipe:tasks-genai:0.10.33")
 
     // LiteRT-LM Android runtime for .litertlm Gemma models.
     // If Android Studio warns about this version, change it to latest.release.

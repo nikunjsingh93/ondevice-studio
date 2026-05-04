@@ -137,14 +137,10 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.mlkit.vision.common.InputImage
-import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
-import com.google.mediapipe.tasks.genai.llminference.GraphOptions
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -2604,82 +2600,10 @@ class MediaPipeMultimodalEngine(
     private val context: Context,
     private val modelPath: String
 ) {
-    private var ready = false
-    private var llmInference: LlmInference? = null
-
-    fun load() {
-        runCatching {
-            close()
-            val options = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelPath)
-                .setMaxTokens(4096)
-                .setMaxNumImages(10)
-                .build()
-            llmInference = LlmInference.createFromOptions(context, options)
-            ready = true
-        }.onFailure {
-            ready = false
-            llmInference = null
-        }
-    }
-
-    fun isReady(): Boolean = ready
-
-    fun generateResponse(prompt: String, root: File, attachmentPaths: List<String>): String {
-        val inference = llmInference ?: return ""
-        if (attachmentPaths.isEmpty()) return ""
-        return runCatching {
-            val hasImage = attachmentPaths.any { isPreviewableImageFile(it) }
-            // Keep MediaPipe path image-first for stability; audio adapter availability
-            // varies by model/runtime and can trigger native aborts on unsupported models.
-            val hasAudio = false
-
-            val graphOptions = GraphOptions.builder()
-                .setEnableVisionModality(hasImage)
-                .setEnableAudioModality(hasAudio)
-                .build()
-
-            val sessionOptions = LlmInferenceSession.LlmInferenceSessionOptions.builder()
-                .setTopK(20)
-                .setTopP(0.9f)
-                .setTemperature(0.2f)
-                .setGraphOptions(graphOptions)
-                .build()
-
-            LlmInferenceSession.createFromOptions(inference, sessionOptions).use { session ->
-                session.addQueryChunk(prompt)
-                var addedAnyModality = false
-
-                attachmentPaths.forEach { relative ->
-                    val file = safeResolve(root, relative)
-                    if (!file.exists()) return@forEach
-                    when {
-                        isPreviewableImageFile(relative) -> {
-                            val bitmap = decodeScaledBitmap(file.absolutePath, maxSide = 1600) ?: return@forEach
-                            val mpImage = BitmapImageBuilder(bitmap).build()
-                            session.addImage(mpImage)
-                            addedAnyModality = true
-                        }
-                        isAudioFilePath(relative) -> Unit
-                    }
-                }
-                if (!addedAnyModality) return@use ""
-                session.generateResponse().trim()
-            }
-        }.getOrDefault("")
-    }
-
-    private fun readAudioForMediaPipe(file: File, path: String): ByteArray {
-        val ext = path.substringAfterLast('.', "").lowercase(Locale.US)
-        if (ext != "wav") return ByteArray(0)
-        return runCatching { file.readBytes() }.getOrDefault(ByteArray(0))
-    }
-
-    fun close() {
-        runCatching { llmInference?.close() }
-        llmInference = null
-        ready = false
-    }
+    fun load() = Unit
+    fun isReady(): Boolean = false
+    fun generateResponse(prompt: String, root: File, attachmentPaths: List<String>): String = ""
+    fun close() = Unit
 }
 
 class DemoBuilderEngine : BuilderEngine {
