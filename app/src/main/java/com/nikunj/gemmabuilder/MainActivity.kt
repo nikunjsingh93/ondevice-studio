@@ -3496,7 +3496,7 @@ fun welcomeHtml(): String = """
 </head>
 <body>
   <main class="card">
-    <h1>Local Android AI Builder</h1>
+    <h1>OnDevice Web App AI Builder</h1>
     <p>Ask the chat panel to build a calculator, game menu, landing page, or another tiny offline web app. The result will be written to index.html and previewed here.</p>
     <span class="pill">Ready for Preview</span>
   </main>
