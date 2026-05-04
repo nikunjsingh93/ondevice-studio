@@ -2816,13 +2816,118 @@ fun cleanGeneratedFileContent(raw: String): String {
 fun normalizeWriteActions(actions: List<WriteFileAction>): List<WriteFileAction> {
     if (actions.isEmpty()) return actions
 
-    return actions.map { a ->
+    val normalized = actions.map { a ->
         var normalizedPath = a.path.trim().replace('\\', '/').trimStart('/').ifBlank { "index.html" }
         if (normalizedPath.equals("index.htm", ignoreCase = true)) {
             normalizedPath = "index.html"
         }
         a.copy(path = normalizedPath)
     }
+    return consolidateSingleFileDefault(repairCssJsMixup(normalized))
+}
+
+private fun repairCssJsMixup(actions: List<WriteFileAction>): List<WriteFileAction> {
+    val mutable = actions.toMutableList()
+    val cssIndex = mutable.indexOfFirst { it.path.equals("styles.css", ignoreCase = true) }
+    if (cssIndex < 0) return mutable
+
+    val css = mutable[cssIndex]
+    val lines = css.content.lines()
+    val jsStart = lines.indexOfFirst { line ->
+        val t = line.trim()
+        t.startsWith("const ") ||
+            t.startsWith("let ") ||
+            t.startsWith("var ") ||
+            t.startsWith("function ") ||
+            t.contains("=>") ||
+            t.contains("document.") ||
+            t.contains("window.") ||
+            t.contains("addEventListener(") ||
+            t.contains("querySelector(") ||
+            t.contains("querySelectorAll(")
+    }
+    if (jsStart <= 0) return mutable
+
+    val cssPart = lines.take(jsStart).joinToString("\n").trimEnd()
+    val jsPart = lines.drop(jsStart).joinToString("\n").trim()
+    if (jsPart.isBlank()) return mutable
+
+    mutable[cssIndex] = css.copy(content = cssPart)
+
+    val jsIndex = mutable.indexOfFirst { it.path.equals("app.js", ignoreCase = true) }
+    if (jsIndex >= 0) {
+        val existing = mutable[jsIndex].content.trim()
+        val merged = if (existing.isBlank()) jsPart else "$existing\n\n$jsPart"
+        mutable[jsIndex] = mutable[jsIndex].copy(content = merged.trim())
+    } else {
+        mutable.add(WriteFileAction(path = "app.js", content = jsPart))
+    }
+
+    val htmlIndex = mutable.indexOfFirst { it.path.equals("index.html", ignoreCase = true) }
+    if (htmlIndex >= 0) {
+        val html = mutable[htmlIndex].content
+        val needsScriptRef = html.contains("styles.css", ignoreCase = true) &&
+            !html.contains("app.js", ignoreCase = true)
+        if (needsScriptRef) {
+            val patched = html.replaceFirst(
+                Regex("(?i)</body>"),
+                """  <script src="app.js"></script>
+</body>"""
+            )
+            mutable[htmlIndex] = mutable[htmlIndex].copy(content = patched)
+        }
+    }
+
+    return mutable
+}
+
+private fun consolidateSingleFileDefault(actions: List<WriteFileAction>): List<WriteFileAction> {
+    val indexAction = actions.firstOrNull { it.path.equals("index.html", ignoreCase = true) } ?: return actions
+    val cssAction = actions.firstOrNull { it.path.equals("styles.css", ignoreCase = true) }
+    val jsAction = actions.firstOrNull { it.path.equals("app.js", ignoreCase = true) }
+    if (cssAction == null && jsAction == null) return actions
+
+    var html = indexAction.content
+    val lower = html.lowercase(Locale.US)
+    val explicitSplitRequested = lower.contains("split files") ||
+        lower.contains("separate files") ||
+        lower.contains("styles.css") && lower.contains("app.js") && lower.contains("requested")
+    if (explicitSplitRequested) return actions
+
+    cssAction?.let { css ->
+        val cssText = css.content.trim()
+        if (cssText.isNotBlank()) {
+            val styleTag = "<style>\n$cssText\n</style>"
+            html = if (Regex("(?is)<head[^>]*>").containsMatchIn(html)) {
+                html.replaceFirst(Regex("(?is)</head>"), "$styleTag\n</head>")
+            } else {
+                "$styleTag\n$html"
+            }
+        }
+        html = html.replace(Regex("(?is)<link[^>]+href=[\"']styles\\.css[\"'][^>]*>"), "")
+    }
+
+    jsAction?.let { js ->
+        val jsText = js.content.trim()
+        if (jsText.isNotBlank()) {
+            val scriptTag = "<script>\n$jsText\n</script>"
+            html = if (Regex("(?is)</body>").containsMatchIn(html)) {
+                html.replaceFirst(Regex("(?is)</body>"), "$scriptTag\n</body>")
+            } else {
+                "$html\n$scriptTag"
+            }
+        }
+        html = html.replace(Regex("(?is)<script[^>]+src=[\"']app\\.js[\"'][^>]*></script>"), "")
+    }
+
+    val out = mutableListOf(indexAction.copy(content = html.trim()))
+    actions.forEach { action ->
+        val isIndex = action.path.equals("index.html", ignoreCase = true)
+        val isCss = action.path.equals("styles.css", ignoreCase = true)
+        val isJs = action.path.equals("app.js", ignoreCase = true)
+        if (!isIndex && !isCss && !isJs) out.add(action)
+    }
+    return out
 }
 
 fun isCompleteEnoughForWriting(action: WriteFileAction): Boolean {
@@ -3465,7 +3570,9 @@ Rules:
 - Use reply action when the user is asking a normal question and no file changes are required.
 - For edits, update only the needed files.
 - If the user asks for a different app, replace the current app completely.
-- You may use multiple files such as index.html, styles.css, app.js, and assets/*.
+- By default, generate a single self-contained index.html that includes CSS in <style> and JavaScript in <script>.
+- Only split into separate files (for example styles.css/app.js) when the user explicitly asks for separate files.
+- Never place JavaScript in styles.css.
 - No external links.
 - No CDN.
 - No remote images.
