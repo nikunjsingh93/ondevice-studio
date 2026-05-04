@@ -162,6 +162,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.Locale
@@ -3109,6 +3111,7 @@ private suspend fun transcribeAudioWithSpeechRecognizer(context: Context, file: 
         strategies += strategy@{
             val pfd = runCatching { ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY) }.getOrNull()
                 ?: return@strategy ""
+            val wavSpec = if (ext == "wav") readWavSpec(file) else null
             recognizeAudioIntent(
                 context = context,
                 intentBuilder = {
@@ -3118,9 +3121,16 @@ private suspend fun transcribeAudioWithSpeechRecognizer(context: Context, file: 
                         putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, pfd)
                         putExtra(RecognizerIntent.EXTRA_SEGMENTED_SESSION, RecognizerIntent.EXTRA_AUDIO_SOURCE)
                         if (ext == "wav") {
-                            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
-                            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
-                            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, 16000)
+                            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, wavSpec?.channels ?: 1)
+                            putExtra(
+                                RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING,
+                                when (wavSpec?.bitsPerSample) {
+                                    8 -> AudioFormat.ENCODING_PCM_8BIT
+                                    24, 32 -> AudioFormat.ENCODING_PCM_FLOAT
+                                    else -> AudioFormat.ENCODING_PCM_16BIT
+                                }
+                            )
+                            putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, wavSpec?.sampleRate ?: 16000)
                         }
                     }
                 },
@@ -3135,6 +3145,27 @@ private suspend fun transcribeAudioWithSpeechRecognizer(context: Context, file: 
     }
     return ""
 }
+
+private data class WavSpec(
+    val channels: Int,
+    val sampleRate: Int,
+    val bitsPerSample: Int
+)
+
+private fun readWavSpec(file: File): WavSpec? = runCatching {
+    val bytes = file.inputStream().use { it.readNBytes(64) }
+    if (bytes.size < 44) return@runCatching null
+    val header = String(bytes, 0, 4)
+    val wave = String(bytes, 8, 4)
+    if (header != "RIFF" || wave != "WAVE") return@runCatching null
+
+    val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+    // Standard PCM fields for most WAV files.
+    val channels = buf.getShort(22).toInt().coerceAtLeast(1)
+    val sampleRate = buf.getInt(24).coerceAtLeast(8000)
+    val bitsPerSample = buf.getShort(34).toInt().coerceAtLeast(8)
+    WavSpec(channels = channels, sampleRate = sampleRate, bitsPerSample = bitsPerSample)
+}.getOrNull()
 
 private suspend fun recognizeAudioIntent(
     context: Context,
