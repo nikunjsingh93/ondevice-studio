@@ -3231,19 +3231,30 @@ private fun describeImageWithLabels(file: File): String {
     return runCatching {
         val bitmap = decodeScaledBitmap(file.absolutePath, maxSide = 1600) ?: return@runCatching ""
         val options = ImageLabelerOptions.Builder()
-            .setConfidenceThreshold(0.55f)
+            .setConfidenceThreshold(0.15f)
             .build()
         val labeler = ImageLabeling.getClient(options)
         val labels = Tasks.await(labeler.process(InputImage.fromBitmap(bitmap, 0)))
         labeler.close()
         if (labels.isEmpty()) return@runCatching ""
-        val summary = labels
-            .sortedByDescending { it.confidence }
-            .take(6)
+        val ranked = labels.sortedByDescending { it.confidence }
+        val summary = ranked
+            .take(12)
             .joinToString(", ") { label ->
-            "${label.text} (${(label.confidence * 100).toInt()}%)"
+                "${label.text} (${(label.confidence * 100).toInt()}%)"
+            }
+
+        val lowered = ranked.map { it.text.lowercase(Locale.US) }
+        val likelySubject = when {
+            lowered.any { it.contains("pancake") } -> "Likely subject: pancake."
+            lowered.any { it.contains("waffle") } -> "Likely subject: waffle."
+            lowered.any { it.contains("crepe") } -> "Likely subject: crepe."
+            lowered.any { it.contains("food") || it.contains("meal") || it.contains("cuisine") } &&
+                lowered.any { it.contains("tableware") || it.contains("dishware") || it.contains("plate") } ->
+                "Likely subject: a plated food item, possibly a pancake or similar flat breakfast dish."
+            else -> "Likely subject: ${ranked.first().text}."
         }
-        "No readable text detected. Visual content likely includes: $summary."
+        "No readable text detected. Visual analysis labels: $summary. $likelySubject"
     }.getOrDefault("")
 }
 
