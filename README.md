@@ -20,11 +20,10 @@
 
 ## Installing
 
-1. Download or clone this repository.
-2. Open it in Android Studio.
-3. Let Gradle sync complete.
-4. Connect an Android phone (recommended) or start an emulator.
-5. Run the `app` configuration.
+1. Go to the GitHub **Releases** page.
+2. Download the latest APK from the most recent release.
+3. Open the APK on your Android device and install it.
+4. Launch **OnDevice Studio**.
 
 ## Using the App
 
