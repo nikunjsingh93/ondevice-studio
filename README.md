@@ -29,27 +29,13 @@
 
 1. Open OnDevice Studio on your device.
 2. Import a compatible `.litertlm` model from the menu.
+Model setup: This repository does **not** include model files, so download one first and then import it in-app.
+Recommended model family: `litert-community/gemma-4-E2B-it-litert-lm`
+Model source: [Hugging Face - litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/tree/main)
 3. Enter a prompt (example: `Build a calculator app with a clean UI`).
 4. Generate and review the live preview.
 5. Refine with follow-up prompts.
 6. Export files when you are ready.
-
-## Model Setup (Gemma / LiteRT-LM)
-
-This repository does **not** include model files.
-
-1. Download a compatible `.litertlm` model on your device.
-2. Launch the app.
-3. Open menu and import the model.
-4. Load the model and start prompting.
-
-Reference model family:
-
-- `litert-community/gemma-4-E2B-it-litert-lm`
-
-Model source:
-
-- [Hugging Face - litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/tree/main)
 
 ## Security and Privacy Notes
 
