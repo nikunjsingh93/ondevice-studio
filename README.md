@@ -79,22 +79,6 @@ Current app version:
 
 LiteRT-LM dependency currently pinned in app Gradle config. If your environment needs it, you can switch to `latest.release`.
 
-## Roadmap Ideas
-
-- Multi-project workspace management
-- Better template/gallery flows
-- Improved model prompt tooling
-- Release packaging improvements
-
-## Contributing
-
-Contributions are welcome.
-
-1. Fork the repo
-2. Create a feature branch
-3. Make your changes
-4. Open a pull request
-
 ## License
 
-Add your preferred license here (for example, MIT, Apache-2.0, or GPL-3.0).
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
