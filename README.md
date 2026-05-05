@@ -53,7 +53,7 @@ Notes:
 
 ## Installing
 
-1. Go to the GitHub **Releases** page.
+1. Go to the GitHub **Releases** page: [OnDevice Studio v.1.0.5](https://github.com/nikunjsingh93/ondevice-studio/releases/tag/v.1.0.5)
 2. Download the latest APK from the most recent release.
 3. Open the APK on your Android device and install it.
 4. Launch **OnDevice Studio**.
