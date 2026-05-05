@@ -1467,8 +1467,7 @@ fun SettingsScreen(
         val pkg = context.packageName
         val packageInfo = pm.getPackageInfo(pkg, 0)
         val versionName = packageInfo.versionName ?: "unknown"
-        val versionCode = packageInfo.longVersionCode
-        "v$versionName ($versionCode)"
+        "v$versionName"
     }
 
     BackHandler(onBack = {
@@ -1539,7 +1538,7 @@ fun SettingsScreen(
             }
 
             Text(
-                text = "App Version $appVersionLabel",
+                text = "OnDevice Studio $appVersionLabel",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
