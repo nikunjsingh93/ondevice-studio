@@ -28,6 +28,7 @@ Minimum (app + basic usage):
 Recommended (comfortable local model experience):
 - Android 13 or newer
 - 8 GB RAM or more
+- Mid-range to flagship processor
 - 4-6 GB free storage (depending on model size and project assets)
 
 Notes:
