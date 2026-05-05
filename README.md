@@ -8,37 +8,31 @@
   On-device Android app for generating and previewing web apps (HTML/CSS/JS) with local AI workflows.
 </p>
 
-## Features
+## App Features
 
-- Jetpack Compose Android UI
-- Built-in WebView live preview
-- Local project workspace in app-private storage
-- File import/export (including ZIP export)
-- On-device model integration via LiteRT-LM (`.litertlm`)
-- Demo mode for testing without loading a model
-- Safe in-app file writing for generated project files
+- Build simple web apps from prompts directly on Android
+- Live preview your generated app instantly
+- Edit and iterate with chat-style prompts
+- Import model files and run generation on-device
+- Import project files and export your work as ZIP
+- Keep your generated files inside app-local storage by default
 
-## Tech Stack
+## Installing
 
-- Kotlin
-- Jetpack Compose (Material 3)
-- Android WebView
-- LiteRT-LM Android runtime
-- ML Kit (OCR / labeling helpers)
-
-## Requirements
-
-- Android Studio (recent stable)
-- JDK 17+
-- Android device (recommended) or emulator
-- Android SDK matching project config
-
-## Getting Started
-
-1. Clone the repository.
-2. Open the project in Android Studio.
+1. Download or clone this repository.
+2. Open it in Android Studio.
 3. Let Gradle sync complete.
-4. Run the `app` configuration on a device.
+4. Connect an Android phone (recommended) or start an emulator.
+5. Run the `app` configuration.
+
+## Using the App
+
+1. Open OnDevice Studio on your device.
+2. Import a compatible `.litertlm` model from the menu.
+3. Enter a prompt (example: `Build a calculator app with a clean UI`).
+4. Generate and review the live preview.
+5. Refine with follow-up prompts.
+6. Export files when you are ready.
 
 ## Model Setup (Gemma / LiteRT-LM)
 
@@ -57,27 +51,43 @@ Model source:
 
 - [Hugging Face - litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/tree/main)
 
-## Project Structure
-
-- `app/src/main/java/com/nikunj/gemmabuilder/` - main app source
-- `app/src/main/res/` - Android resources
-- `app/src/main/AndroidManifest.xml` - app manifest
-- `app/build.gradle.kts` - app module build config
-
 ## Security and Privacy Notes
 
 - Generated project files stay inside app-private storage by default.
 - External web navigation is restricted in preview flow.
 - Imported files/models are handled locally on-device.
 
-## Build Notes
+## Development
+
+### Tech Stack
+
+- Kotlin
+- Jetpack Compose (Material 3)
+- Android WebView
+- LiteRT-LM Android runtime
+- ML Kit (OCR / labeling helpers)
+
+### Requirements
+
+- Android Studio (recent stable)
+- JDK 17+
+- Android SDK matching project config
+
+### Project Structure
+
+- `app/src/main/java/com/nikunj/gemmabuilder/` - main app source
+- `app/src/main/res/` - Android resources
+- `app/src/main/AndroidManifest.xml` - app manifest
+- `app/build.gradle.kts` - app module build config
+
+### Build Notes
 
 Current app version:
 
 - `versionName`: `1.0.5`
 - `versionCode`: `1`
 
-LiteRT-LM dependency currently pinned in app Gradle config. If your environment needs it, you can switch to `latest.release`.
+LiteRT-LM dependency is pinned in app Gradle config. If your environment needs it, you can switch to `latest.release`.
 
 ## License
 
