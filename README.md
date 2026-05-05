@@ -18,6 +18,20 @@
 - Import project files and export your work as ZIP
 - Keep your generated files inside app-local storage by default
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/Screenshot_20260505-120957.png" alt="App screenshot 1" width="240" />
+  <img src="docs/screenshots/Screenshot_20260505-121459.png" alt="App screenshot 2" width="240" />
+  <img src="docs/screenshots/Screenshot_20260505-121509.png" alt="App screenshot 3" width="240" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/Screenshot_20260505-121518.png" alt="App screenshot 4" width="240" />
+  <img src="docs/screenshots/Screenshot_20260505-121538.png" alt="App screenshot 5" width="240" />
+  <img src="docs/screenshots/Screenshot_20260505_123027.jpg" alt="App screenshot 6" width="240" />
+</p>
+
 ## Device Requirements
 
 Minimum (app + basic usage):
