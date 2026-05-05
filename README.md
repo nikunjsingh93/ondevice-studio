@@ -27,11 +27,11 @@
 
 <p align="center">
   <img src="docs/screenshots/Screenshot_20260505-121509.png" alt="App screenshot 3" width="300" />
-  <img src="docs/screenshots/Screenshot_20260505-121538.png" alt="App screenshot 4" width="300" />
+  <img src="docs/screenshots/Screenshot_20260505_123027.jpg" alt="App screenshot 4" width="300" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Screenshot_20260505_123027.jpg" alt="App screenshot 5" width="960" />
+  <img src="docs/screenshots/Screenshot_20260505-121538.png" alt="App screenshot 5" width="960" />
 </p>
 
 ## Device Requirements
