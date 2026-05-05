@@ -1518,10 +1518,6 @@ fun SettingsScreen(
                         "You can delete chats, project files, and imported assets inside the app at any time.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text(
-                        "For Play Store release, replace this with your final legal privacy policy text and host a public URL for the listing.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             } else {
                 Column(
