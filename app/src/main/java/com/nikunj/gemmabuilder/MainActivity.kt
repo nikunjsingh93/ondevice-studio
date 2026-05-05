@@ -282,10 +282,6 @@ fun BuilderApp(
         contract = ActivityResultContracts.OpenMultipleDocuments(),
         onResult = { uris -> if (uris.isNotEmpty()) vm.importFiles(context.applicationContext, uris) }
     )
-    val photoImporter = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents(),
-        onResult = { uris -> if (uris.isNotEmpty()) vm.importFiles(context.applicationContext, uris) }
-    )
 
     var pendingExportPath by remember { mutableStateOf<String?>(null) }
     var settingsScreenOpen by remember { mutableStateOf(false) }
@@ -333,7 +329,6 @@ fun BuilderApp(
                 onToggleSidebar = { vm.toggleSidebar() },
                 onImportModel = { modelPicker.launch(arrayOf("*/*")) },
                 onImportFiles = { fileImporter.launch(arrayOf("*/*")) },
-                onImportPhotos = { photoImporter.launch("image/*") },
                 onPromptChange = vm::setPrompt,
                 onGenerate = { vm.generate(context.applicationContext) },
                 onOpenImagePreview = { relativePath -> vm.openImagePreview(context.applicationContext, relativePath) },
@@ -402,7 +397,6 @@ fun MainBuilderContent(
     onToggleSidebar: () -> Unit,
     onImportModel: () -> Unit,
     onImportFiles: () -> Unit,
-    onImportPhotos: () -> Unit,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
     onOpenImagePreview: (String) -> Unit,
@@ -466,7 +460,6 @@ fun MainBuilderContent(
                     state = state,
                     onPromptChange = onPromptChange,
                     onGenerate = onGenerate,
-                    onAddPhotos = onImportPhotos,
                     onAddFiles = onImportFiles,
                     onOpenImagePreview = onOpenImagePreview,
                     chatFontScale = state.chatFontScale,
@@ -512,7 +505,6 @@ fun MainBuilderContent(
                             state = state,
                             onPromptChange = onPromptChange,
                             onGenerate = onGenerate,
-                            onAddPhotos = onImportPhotos,
                             onAddFiles = onImportFiles,
                             onOpenImagePreview = onOpenImagePreview,
                             chatFontScale = state.chatFontScale,
@@ -543,7 +535,6 @@ fun MainBuilderContent(
                         state = state,
                         onPromptChange = onPromptChange,
                         onGenerate = onGenerate,
-                        onAddPhotos = onImportPhotos,
                         onAddFiles = onImportFiles,
                         onOpenImagePreview = onOpenImagePreview,
                         chatFontScale = state.chatFontScale,
@@ -848,7 +839,6 @@ fun ChatPanel(
     state: BuilderUiState,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
-    onAddPhotos: () -> Unit,
     onAddFiles: () -> Unit,
     onOpenImagePreview: (String) -> Unit,
     chatFontScale: Float,
@@ -944,11 +934,6 @@ fun ChatPanel(
                         Icon(Icons.Outlined.Add, contentDescription = "Add attachments")
                     }
                     DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Add photos") },
-                            leadingIcon = { Icon(Icons.Outlined.Image, contentDescription = null) },
-                            onClick = { addMenuOpen = false; onAddPhotos() }
-                        )
                         DropdownMenuItem(
                             text = { Text("Add files") },
                             leadingIcon = { Icon(Icons.Outlined.AttachFile, contentDescription = null) },
