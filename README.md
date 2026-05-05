@@ -21,12 +21,12 @@
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/Screenshot_20260505-120957.png" alt="App screenshot 1" width="300" />
-  <img src="docs/screenshots/Screenshot_20260505-121459.png" alt="App screenshot 2" width="300" />
+  <img src="docs/screenshots/1.jpg" alt="App screenshot 1" width="300" />
+  <img src="docs/screenshots/2.jpg" alt="App screenshot 2" width="300" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/Screenshot_20260505-121509.png" alt="App screenshot 3" width="300" />
+  <img src="docs/screenshots/3.jpg" alt="App screenshot 3" width="300" />
   <img src="docs/screenshots/Screenshot_20260505_123027.jpg" alt="App screenshot 4" width="300" />
 </p>
 
