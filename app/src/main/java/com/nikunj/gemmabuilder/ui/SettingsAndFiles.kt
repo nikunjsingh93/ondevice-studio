@@ -1,0 +1,259 @@
+package com.nikunj.gemmabuilder
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.OpenInNew
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import java.util.Locale
+
+@Composable
+fun SettingsScreen(
+    chatFontScale: Float,
+    codeFontScale: Float,
+    onChatFontScale: (Float) -> Unit,
+    onCodeFontScale: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var privacyPageOpen by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val appVersionLabel = remember(context) {
+        val pm = context.packageManager
+        val pkg = context.packageName
+        val packageInfo = pm.getPackageInfo(pkg, 0)
+        val versionName = packageInfo.versionName ?: "unknown"
+        "v$versionName"
+    }
+
+    BackHandler(onBack = {
+        if (privacyPageOpen) privacyPageOpen = false else onDismiss()
+    })
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(onClick = {
+                    if (privacyPageOpen) privacyPageOpen = false else onDismiss()
+                }) { Text("Back") }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = if (privacyPageOpen) "Privacy Policy" else "Settings",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (privacyPageOpen) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "This app stores settings and chat/project files locally on your device. Imported files and model files stay on-device. We do not send your content to a remote server from this app.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "You can delete chats, project files, and imported assets inside the app at any time.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("Chat font size: ${"%.2f".format(Locale.US, chatFontScale)}x")
+                    Slider(value = chatFontScale, onValueChange = onChatFontScale, valueRange = 0.8f..1.8f)
+                    Text("Code font size: ${"%.2f".format(Locale.US, codeFontScale)}x")
+                    Slider(value = codeFontScale, onValueChange = onCodeFontScale, valueRange = 0.8f..1.8f)
+                    HorizontalDivider()
+                    OutlinedButton(onClick = { privacyPageOpen = true }) {
+                        Text("Open Privacy Policy")
+                    }
+                }
+            }
+
+            Text(
+                text = "OnDevice Studio $appVersionLabel",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun FilesPane(
+    state: BuilderUiState,
+    onImportFiles: () -> Unit,
+    onOpenFileInCode: (String) -> Unit,
+    onOpenImagePreview: (String) -> Unit,
+    onDeleteFile: (String) -> Unit,
+    onSaveFile: (String) -> Unit,
+    onSaveZip: () -> Unit,
+    onSavePwaZip: () -> Unit
+) {
+    var pendingDelete by remember { mutableStateOf<String?>(null) }
+    var toolsMenuOpen by remember { mutableStateOf(false) }
+    pendingDelete?.let { file ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("Delete file?") },
+            text = { Text("Delete \"$file\" from this chat workspace?") },
+            confirmButton = {
+                Button(onClick = {
+                    pendingDelete = null
+                    onDeleteFile(file)
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    Column(Modifier.fillMaxSize().padding(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Project files", fontWeight = FontWeight.Bold)
+                Text(
+                    "Tap a file to open code. Use ⋮ for import/export tools.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Box {
+                IconButton(onClick = { toolsMenuOpen = true }) {
+                    Icon(Icons.Outlined.MoreVert, contentDescription = "Files tools")
+                }
+                DropdownMenu(expanded = toolsMenuOpen, onDismissRequest = { toolsMenuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Import files") },
+                        onClick = { toolsMenuOpen = false; onImportFiles() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Save ZIP") },
+                        enabled = state.files.isNotEmpty(),
+                        onClick = { toolsMenuOpen = false; onSaveZip() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Save PWA-ready zip") },
+                        enabled = state.files.isNotEmpty(),
+                        onClick = { toolsMenuOpen = false; onSavePwaZip() }
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            state.files.forEach { file ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        file,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = isCodeFile(file) || isPreviewableImageFile(file)) {
+                                when {
+                                    isCodeFile(file) -> onOpenFileInCode(file)
+                                    isPreviewableImageFile(file) -> onOpenImagePreview(file)
+                                }
+                            }
+                    )
+                    if (isCodeFile(file)) {
+                        IconButton(onClick = { onOpenFileInCode(file) }) {
+                            Icon(Icons.Outlined.OpenInNew, contentDescription = "Open file")
+                        }
+                    }
+                    IconButton(onClick = { onSaveFile(file) }) {
+                        Icon(Icons.Outlined.Download, contentDescription = "Download file")
+                    }
+                    IconButton(onClick = { pendingDelete = file }) {
+                        Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete file")
+                    }
+                }
+                HorizontalDivider()
+            }
+        }
+    }
+}
+
+@Composable
+fun RawPane(state: BuilderUiState) {
+    Column(Modifier.fillMaxSize().padding(12.dp)) {
+        Text("Raw model response", fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        AutoScrollingMonospaceText(
+            text = state.lastRawResponse.ifBlank { "No model response yet." },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
