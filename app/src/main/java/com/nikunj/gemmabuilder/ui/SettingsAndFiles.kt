@@ -56,7 +56,7 @@ fun SettingsScreen(
     onCodeFontScale: (Float) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var privacyPageOpen by rememberSaveable { mutableStateOf(false) }
+    var settingsSubPage by rememberSaveable { mutableStateOf("root") }
     val context = LocalContext.current
     val appVersionLabel = remember(context) {
         val pm = context.packageManager
@@ -67,7 +67,7 @@ fun SettingsScreen(
     }
 
     BackHandler(onBack = {
-        if (privacyPageOpen) privacyPageOpen = false else onDismiss()
+        if (settingsSubPage != "root") settingsSubPage = "root" else onDismiss()
     })
 
     Surface(
@@ -87,17 +87,21 @@ fun SettingsScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(onClick = {
-                    if (privacyPageOpen) privacyPageOpen = false else onDismiss()
+                    if (settingsSubPage != "root") settingsSubPage = "root" else onDismiss()
                 }) { Text("Back") }
                 Spacer(Modifier.width(12.dp))
                 Text(
-                    text = if (privacyPageOpen) "Privacy Policy" else "Settings",
+                    text = when (settingsSubPage) {
+                        "privacy" -> "Privacy Policy"
+                        "licenses" -> "Third-Party Licenses"
+                        else -> "Settings"
+                    },
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            if (privacyPageOpen) {
+            if (settingsSubPage == "privacy") {
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -111,6 +115,31 @@ fun SettingsScreen(
                     )
                     Text(
                         "You can delete chats, project files, and imported assets inside the app at any time.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "This app uses third-party open source components. License and attribution details are available in Settings > Third-Party Licenses.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else if (settingsSubPage == "licenses") {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("Open source components used in this app:", fontWeight = FontWeight.SemiBold)
+                    Text("• Kotlin — Apache-2.0")
+                    Text("• Jetpack Compose / AndroidX — Apache-2.0")
+                    Text("• Kotlin Coroutines — Apache-2.0")
+                    Text("• AndroidX WebKit — Apache-2.0")
+                    Text("• Google ML Kit — Google SDK Terms")
+                    Text("• LiteRT / LiteRT-LM Android — Google terms and licenses")
+                    Text("• PDFBox-Android — Apache-2.0")
+                    Text(
+                        "See each upstream project/release for full license text and notices.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -127,8 +156,11 @@ fun SettingsScreen(
                     Text("Code font size: ${"%.2f".format(Locale.US, codeFontScale)}x")
                     Slider(value = codeFontScale, onValueChange = onCodeFontScale, valueRange = 0.8f..1.8f)
                     HorizontalDivider()
-                    OutlinedButton(onClick = { privacyPageOpen = true }) {
+                    OutlinedButton(onClick = { settingsSubPage = "privacy" }) {
                         Text("Open Privacy Policy")
+                    }
+                    OutlinedButton(onClick = { settingsSubPage = "licenses" }) {
+                        Text("Open Third-Party Licenses")
                     }
                 }
             }
