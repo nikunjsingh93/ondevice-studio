@@ -5,7 +5,8 @@
 <h1 align="center">OnDevice Studio</h1>
 
 <p align="center">
-  On-device Android app for generating and previewing web apps (HTML/CSS/JS) with local AI workflows.
+  OnDevice Studio is an Android app that helps you build and preview web apps (HTML/CSS/JS) directly on your device using local AI workflows.
+  Import a compatible .litertlm model, generate with prompts, iterate fast in live preview, and export your project when ready.
 </p>
 
 ## App Features
