@@ -351,7 +351,7 @@ fun BuilderApp(
                 onSavePwaZip = { pwaZipSaver.launch("OnDeviceStudioPWA.zip") }
             )
             if (settingsScreenOpen) {
-                SettingsDialog(
+                SettingsScreen(
                     chatFontScale = state.chatFontScale,
                     codeFontScale = state.codeFontScale,
                     onChatFontScale = { vm.setChatFontScale(context.applicationContext, it) },
@@ -1453,26 +1453,102 @@ fun CodePane(state: BuilderUiState) {
 }
 
 @Composable
-fun SettingsDialog(
+fun SettingsScreen(
     chatFontScale: Float,
     codeFontScale: Float,
     onChatFontScale: (Float) -> Unit,
     onCodeFontScale: (Float) -> Unit,
     onDismiss: () -> Unit
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Settings") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("Chat font size: ${"%.2f".format(Locale.US, chatFontScale)}x")
-                Slider(value = chatFontScale, onValueChange = onChatFontScale, valueRange = 0.8f..1.8f)
-                Text("Code font size: ${"%.2f".format(Locale.US, codeFontScale)}x")
-                Slider(value = codeFontScale, onValueChange = onCodeFontScale, valueRange = 0.8f..1.8f)
+    var privacyPageOpen by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val appVersionLabel = remember(context) {
+        val pm = context.packageManager
+        val pkg = context.packageName
+        val packageInfo = pm.getPackageInfo(pkg, 0)
+        val versionName = packageInfo.versionName ?: "unknown"
+        val versionCode = packageInfo.longVersionCode
+        "v$versionName ($versionCode)"
+    }
+
+    BackHandler(onBack = {
+        if (privacyPageOpen) privacyPageOpen = false else onDismiss()
+    })
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(onClick = {
+                    if (privacyPageOpen) privacyPageOpen = false else onDismiss()
+                }) { Text("Back") }
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = if (privacyPageOpen) "Privacy Policy" else "Settings",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
             }
-        },
-        confirmButton = { Button(onClick = onDismiss) { Text("Done") } }
-    )
+
+            if (privacyPageOpen) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "This app stores settings and chat/project files locally on your device. Imported files and model files stay on-device. We do not send your content to a remote server from this app.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "You can delete chats, project files, and imported assets inside the app at any time.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "For Play Store release, replace this with your final legal privacy policy text and host a public URL for the listing.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("Chat font size: ${"%.2f".format(Locale.US, chatFontScale)}x")
+                    Slider(value = chatFontScale, onValueChange = onChatFontScale, valueRange = 0.8f..1.8f)
+                    Text("Code font size: ${"%.2f".format(Locale.US, codeFontScale)}x")
+                    Slider(value = codeFontScale, onValueChange = onCodeFontScale, valueRange = 0.8f..1.8f)
+                    HorizontalDivider()
+                    OutlinedButton(onClick = { privacyPageOpen = true }) {
+                        Text("Open Privacy Policy")
+                    }
+                }
+            }
+
+            Text(
+                text = "App Version $appVersionLabel",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
 }
 
 @Composable
