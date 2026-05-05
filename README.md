@@ -18,6 +18,22 @@
 - Import project files and export your work as ZIP
 - Keep your generated files inside app-local storage by default
 
+## Device Requirements
+
+Minimum (app + basic usage):
+- Android 12 or newer
+- 6 GB RAM
+- 4 GB free storage for app, workspace, and model files
+
+Recommended (comfortable local model experience):
+- Android 13 or newer
+- 8 GB RAM or more
+- 4-6 GB free storage (depending on model size and project assets)
+
+Notes:
+- Larger `.litertlm` models need more RAM and storage.
+- First model load can take longer; later runs are usually faster.
+
 ## Installing
 
 1. Go to the GitHub **Releases** page.
