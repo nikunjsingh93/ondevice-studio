@@ -1,65 +1,100 @@
-# Gemma Android Builder
+<p align="center">
+  <img src="docs/assets/icon_no_bg.png" alt="OnDevice Studio logo" width="72" />
+</p>
 
-This is a minimal Android Studio project for an on-device HTML/CSS/JS builder app.
+<h1 align="center">OnDevice Studio</h1>
 
-It includes:
+<p align="center">
+  On-device Android app for generating and previewing web apps (HTML/CSS/JS) with local AI workflows.
+</p>
 
-- Kotlin + Jetpack Compose UI
-- WebView live preview
-- Local project workspace in app private storage
-- XML `<action name="write_file">` parser
-- Safe file writing for generated web files
-- Demo builder engine so you can test immediately without a model
-- LiteRT-LM Gemma engine integration for `.litertlm` models
-- Model import using Android's file picker
+## Features
 
-## Open and run
+- Jetpack Compose Android UI
+- Built-in WebView live preview
+- Local project workspace in app-private storage
+- File import/export (including ZIP export)
+- On-device model integration via LiteRT-LM (`.litertlm`)
+- Demo mode for testing without loading a model
+- Safe in-app file writing for generated project files
 
-1. Unzip this folder.
-2. Open the folder in Android Studio.
-3. Let Gradle sync.
-4. Connect a physical Android phone.
-5. Run the `app` configuration.
-6. Try demo mode first: prompt it with `Build a calculator`.
+## Tech Stack
 
-## Using Gemma 4 E2B
+- Kotlin
+- Jetpack Compose (Material 3)
+- Android WebView
+- LiteRT-LM Android runtime
+- ML Kit (OCR / labeling helpers)
 
-The app does not bundle the model because the `.litertlm` file is very large.
+## Requirements
 
-Model download page:
-- https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/tree/main
+- Android Studio (recent stable)
+- JDK 17+
+- Android device (recommended) or emulator
+- Android SDK matching project config
 
-1. Download a Gemma 4 E2B `.litertlm` model to your phone.
-2. Open the app.
-3. Tap **Import .litertlm**.
-4. Pick the model file.
-5. Tap **Load Gemma**.
-6. Ask it to build or edit an app.
+## Getting Started
 
-Recommended model family:
+1. Clone the repository.
+2. Open the project in Android Studio.
+3. Let Gradle sync complete.
+4. Run the `app` configuration on a device.
+
+## Model Setup (Gemma / LiteRT-LM)
+
+This repository does **not** include model files.
+
+1. Download a compatible `.litertlm` model on your device.
+2. Launch the app.
+3. Open menu and import the model.
+4. Load the model and start prompting.
+
+Reference model family:
 
 - `litert-community/gemma-4-E2B-it-litert-lm`
 
-## Notes
+Model source:
 
-- The MVP is intentionally single-file-first: it asks the model to write `index.html` with inline CSS and JS.
-- This is much more reliable for small on-device models.
-- The code blocks external navigation in WebView.
-- Generated files are only written inside the app sandbox under `files/projects/default`.
-- Use Android Studio Device Explorer to inspect the generated files.
+- [Hugging Face - litert-community/gemma-4-E2B-it-litert-lm](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/tree/main)
 
-## If Gradle complains about LiteRT-LM
+## Project Structure
 
-This project pins:
+- `app/src/main/java/com/nikunj/gemmabuilder/` - main app source
+- `app/src/main/res/` - Android resources
+- `app/src/main/AndroidManifest.xml` - app manifest
+- `app/build.gradle.kts` - app module build config
 
-```kotlin
-implementation("com.google.ai.edge.litertlm:litertlm-android:0.10.2")
-```
+## Security and Privacy Notes
 
-If needed, change it to:
+- Generated project files stay inside app-private storage by default.
+- External web navigation is restricted in preview flow.
+- Imported files/models are handled locally on-device.
 
-```kotlin
-implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
-```
+## Build Notes
 
-Also make sure Android Studio is using a recent JDK. JDK 17+ is recommended; newer LiteRT-LM versions may need newer toolchains.
+Current app version:
+
+- `versionName`: `1.0.5`
+- `versionCode`: `1`
+
+LiteRT-LM dependency currently pinned in app Gradle config. If your environment needs it, you can switch to `latest.release`.
+
+## Roadmap Ideas
+
+- Multi-project workspace management
+- Better template/gallery flows
+- Improved model prompt tooling
+- Release packaging improvements
+
+## Contributing
+
+Contributions are welcome.
+
+1. Fork the repo
+2. Create a feature branch
+3. Make your changes
+4. Open a pull request
+
+## License
+
+Add your preferred license here (for example, MIT, Apache-2.0, or GPL-3.0).
