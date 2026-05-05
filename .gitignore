@@ -4,3 +4,15 @@ local.properties
 .idea/
 *.iml
 app/build/
+
+# macOS / Finder
+.DS_Store
+.DS_Store*
+
+# Android release artifacts
+app/release/
+*.apk
+*.aab
+*.ap_
+*.dm
+output-metadata.json
