@@ -335,7 +335,6 @@ fun BuilderApp(
                 onImportFiles = { fileImporter.launch(arrayOf("*/*")) },
                 onPromptChange = vm::setPrompt,
                 onGenerate = { vm.generate(context.applicationContext) },
-                onStopGenerate = { vm.stopGeneration() },
                 onOpenImagePreview = { relativePath -> vm.openImagePreview(context.applicationContext, relativePath) },
                 onTab = vm::setTab,
                 onRefresh = { vm.reloadPreview() },
@@ -410,7 +409,6 @@ fun MainBuilderContent(
     onImportFiles: () -> Unit,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
-    onStopGenerate: () -> Unit,
     onOpenImagePreview: (String) -> Unit,
     onTab: (Int) -> Unit,
     onRefresh: () -> Unit,
@@ -472,7 +470,6 @@ fun MainBuilderContent(
                     state = state,
                     onPromptChange = onPromptChange,
                     onGenerate = onGenerate,
-                    onStopGenerate = onStopGenerate,
                     onAddFiles = onImportFiles,
                     onOpenImagePreview = onOpenImagePreview,
                     chatFontScale = state.chatFontScale,
@@ -518,7 +515,6 @@ fun MainBuilderContent(
                             state = state,
                             onPromptChange = onPromptChange,
                             onGenerate = onGenerate,
-                            onStopGenerate = onStopGenerate,
                             onAddFiles = onImportFiles,
                             onOpenImagePreview = onOpenImagePreview,
                             chatFontScale = state.chatFontScale,
@@ -549,7 +545,6 @@ fun MainBuilderContent(
                         state = state,
                         onPromptChange = onPromptChange,
                         onGenerate = onGenerate,
-                        onStopGenerate = onStopGenerate,
                         onAddFiles = onImportFiles,
                         onOpenImagePreview = onOpenImagePreview,
                         chatFontScale = state.chatFontScale,
@@ -853,7 +848,6 @@ fun ChatPanel(
     state: BuilderUiState,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
-    onStopGenerate: () -> Unit,
     onAddFiles: () -> Unit,
     onOpenImagePreview: (String) -> Unit,
     chatFontScale: Float,
@@ -968,13 +962,13 @@ fun ChatPanel(
                     keyboardActions = KeyboardActions(onSend = { if (!state.isBusy && state.prompt.isNotBlank() && state.modelReady) onGenerate() })
                 )
                 Button(
-                    onClick = if (state.canStopGeneration) onStopGenerate else onGenerate,
+                    onClick = onGenerate,
                     modifier = Modifier.size(54.dp),
-                    enabled = if (state.canStopGeneration) true else (state.prompt.isNotBlank() && !state.isBusy && state.modelReady)
+                    enabled = state.prompt.isNotBlank() && !state.isBusy && state.modelReady
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            if (state.canStopGeneration) "■" else "➤",
+                            "➤",
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.offset(x = (-2).dp)
                         )
@@ -1472,6 +1466,8 @@ class LiteRtGemmaEngine(
 ) : BuilderEngine {
     private var engine: Engine? = null
     private var conversationConfig: ConversationConfig? = null
+    @Volatile
+    private var activeConversationStopper: (() -> Unit)? = null
 
     @OptIn(ExperimentalApi::class)
     suspend fun load() = withContext(Dispatchers.IO) {
@@ -1514,16 +1510,20 @@ class LiteRtGemmaEngine(
             samplerConfig = SamplerConfig(topK = 20, topP = 0.9, temperature = 0.35)
         )
         val requestConversation = loadedEngine.createConversation(configConversation)
+        activeConversationStopper = { runCatching { requestConversation.close() } }
         try {
             requestConversation.sendMessageAsync(prompt).collect { token ->
                 emit(token.toString())
             }
         } finally {
             runCatching { requestConversation.close() }
+            activeConversationStopper = null
         }
     }
 
     override fun close() {
+        runCatching { activeConversationStopper?.invoke() }
+        activeConversationStopper = null
         runCatching { engine?.close() }
         engine = null
         conversationConfig = null

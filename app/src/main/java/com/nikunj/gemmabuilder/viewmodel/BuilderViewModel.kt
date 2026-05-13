@@ -439,7 +439,6 @@ class BuilderViewModel : ViewModel() {
                 _uiState.update {
                     it.copy(
                         isBusy = true,
-                        canStopGeneration = true,
                         prompt = "",
                         status = "Thinking...",
                         messages = pendingMessages,
@@ -653,23 +652,7 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
             } finally {
                 generationInProgress = false
                 generationJob = null
-                _uiState.update { it.copy(isBusy = false, canStopGeneration = false) }
-            }
-        }
-    }
-
-    fun stopGeneration() {
-        val job = generationJob
-        if (job != null && job.isActive) {
-            job.cancel()
-            generationInProgress = false
-            _uiState.update {
-                it.copy(
-                    isBusy = false,
-                    canStopGeneration = false,
-                    status = "Stopped.",
-                    streamingCode = ""
-                )
+                _uiState.update { it.copy(isBusy = false) }
             }
         }
     }

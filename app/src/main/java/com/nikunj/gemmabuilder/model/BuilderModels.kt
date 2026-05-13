@@ -70,7 +70,6 @@ data class BuilderUiState(
     val modelReady: Boolean = false,
     val gemmaLoaded: Boolean = false,
     val isBusy: Boolean = false,
-    val canStopGeneration: Boolean = false,
     val previewVersion: Int = 0,
     val tab: Int = 0,
     val indexHtmlPath: String? = null,
