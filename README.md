@@ -53,7 +53,7 @@ Notes:
 
 ## Installing
 
-1. Go to the GitHub **Releases** page: [OnDevice Studio v.1.0.5](https://github.com/nikunjsingh93/ondevice-studio/releases/tag/v.1.0.5)
+1. Go to the GitHub **Releases** page: [OnDevice Studio v.1.0.6](https://github.com/nikunjsingh93/ondevice-studio/releases/tag/v.1.0.6)
 2. Download the latest APK from the most recent release.
 3. Open the APK on your Android device and install it.
 4. Launch **OnDevice Studio**.
@@ -103,7 +103,7 @@ Model source: [Hugging Face - litert-community/gemma-4-E2B-it-litert-lm](https:/
 
 Current app version:
 
-- `versionName`: `1.0.5`
+- `versionName`: `1.0.6`
 - `versionCode`: `1`
 
 LiteRT-LM dependency is pinned in app Gradle config. If your environment needs it, you can switch to `latest.release`.
