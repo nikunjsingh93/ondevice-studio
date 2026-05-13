@@ -104,7 +104,6 @@ Model source: [Hugging Face - litert-community/gemma-4-E2B-it-litert-lm](https:/
 Current app version:
 
 - `versionName`: `1.0.6`
-- `versionCode`: `1`
 
 LiteRT-LM dependency is pinned in app Gradle config. If your environment needs it, you can switch to `latest.release`.
 
