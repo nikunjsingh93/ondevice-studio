@@ -136,6 +136,9 @@ import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.ExperimentalFlags
+import com.google.ai.edge.litertlm.ExperimentalApi
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
@@ -352,9 +355,13 @@ fun BuilderApp(
                     chatFontScale = state.chatFontScale,
                     codeFontScale = state.codeFontScale,
                     contextSizeChars = state.contextSizeChars,
+                    backendPreference = state.backendPreference,
+                    speculativeDecodingEnabled = state.speculativeDecodingEnabled,
                     onChatFontScale = { vm.setChatFontScale(context.applicationContext, it) },
                     onCodeFontScale = { vm.setCodeFontScale(context.applicationContext, it) },
                     onContextSizeChange = { vm.setContextSizeChars(context.applicationContext, it) },
+                    onBackendPreferenceChange = { vm.setBackendPreference(context.applicationContext, it) },
+                    onSpeculativeDecodingChange = { vm.setSpeculativeDecodingEnabled(context.applicationContext, it) },
                     onDismiss = { settingsScreenOpen = false }
                 )
             }
@@ -1459,18 +1466,33 @@ fun CodePane(state: BuilderUiState) {
 
 class LiteRtGemmaEngine(
     private val context: Context,
-    private val modelPath: String
+    private val modelPath: String,
+    private val backendPreference: String,
+    private val speculativeDecodingEnabled: Boolean
 ) : BuilderEngine {
     private var engine: Engine? = null
     private var conversationConfig: ConversationConfig? = null
 
+    @OptIn(ExperimentalApi::class)
     suspend fun load() = withContext(Dispatchers.IO) {
+        val backend: Backend = (when (backendPreference.lowercase(Locale.US)) {
+            "cpu" -> Backend.CPU()
+            "gpu" -> Backend.GPU()
+            "npu" -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
+            else -> Backend.GPU()
+        }) ?: Backend.CPU()
         val config = EngineConfig(
             modelPath = modelPath,
+            backend = backend,
             cacheDir = context.cacheDir.absolutePath
         )
         val loadedEngine = Engine(config)
-        loadedEngine.initialize()
+        try {
+            ExperimentalFlags.enableSpeculativeDecoding = speculativeDecodingEnabled
+            loadedEngine.initialize()
+        } finally {
+            ExperimentalFlags.enableSpeculativeDecoding = false
+        }
         conversationConfig = ConversationConfig(
             systemInstruction = Contents.of(BUILD_SYSTEM_PROMPT),
             samplerConfig = SamplerConfig(

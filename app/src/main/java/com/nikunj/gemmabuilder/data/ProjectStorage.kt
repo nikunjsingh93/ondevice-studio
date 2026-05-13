@@ -109,6 +109,34 @@ fun saveContextSizeChars(context: Context, contextSizeChars: Int) {
         .apply()
 }
 
+fun savedBackendPreference(context: Context): String =
+    context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .getString("backendPreference", "auto")
+        ?.lowercase(Locale.US)
+        ?.takeIf { it in setOf("auto", "cpu", "gpu", "npu") }
+        ?: "auto"
+
+fun saveBackendPreference(context: Context, backendPreference: String) {
+    val normalized = backendPreference.lowercase(Locale.US).takeIf {
+        it in setOf("auto", "cpu", "gpu", "npu")
+    } ?: "auto"
+    context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .edit()
+        .putString("backendPreference", normalized)
+        .apply()
+}
+
+fun savedSpeculativeDecodingEnabled(context: Context): Boolean =
+    context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .getBoolean("speculativeDecodingEnabled", false)
+
+fun saveSpeculativeDecodingEnabled(context: Context, enabled: Boolean) {
+    context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .edit()
+        .putBoolean("speculativeDecodingEnabled", enabled)
+        .apply()
+}
+
 fun displayNameForUri(resolver: ContentResolver, uri: Uri, fallback: String = "Gemma model"): String {
     resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
         val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)

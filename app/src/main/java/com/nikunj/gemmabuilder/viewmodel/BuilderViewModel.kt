@@ -58,6 +58,8 @@ class BuilderViewModel : ViewModel() {
                 chatFontScale = savedChatFontScale(context),
                 codeFontScale = savedCodeFontScale(context),
                 contextSizeChars = savedContextSizeChars(context),
+                backendPreference = savedBackendPreference(context),
+                speculativeDecodingEnabled = savedSpeculativeDecodingEnabled(context),
                 status = if (hasModel) "${savedModelName(context)} found. Type a message and tap Send to auto-load." else "Import a .litertlm model from the ⋮ menu."
             )
         }
@@ -81,6 +83,30 @@ class BuilderViewModel : ViewModel() {
         saveContextSizeChars(context, contextSizeChars)
         _uiState.update { it.copy(contextSizeChars = savedContextSizeChars(context)) }
         refreshWorkspace(context)
+    }
+
+    fun setBackendPreference(context: Context, backendPreference: String) {
+        saveBackendPreference(context, backendPreference)
+        _uiState.update {
+            it.copy(
+                backendPreference = savedBackendPreference(context),
+                gemmaLoaded = false,
+                engineLabel = "Not loaded",
+                status = "Backend updated. Send a message to reload model."
+            )
+        }
+    }
+
+    fun setSpeculativeDecodingEnabled(context: Context, enabled: Boolean) {
+        saveSpeculativeDecodingEnabled(context, enabled)
+        _uiState.update {
+            it.copy(
+                speculativeDecodingEnabled = savedSpeculativeDecodingEnabled(context),
+                gemmaLoaded = false,
+                engineLabel = "Not loaded",
+                status = "Speculative decoding setting updated. Send a message to reload model."
+            )
+        }
     }
 
     fun newConversation(context: Context) {
@@ -342,7 +368,12 @@ class BuilderViewModel : ViewModel() {
         }
         _uiState.update { it.copy(isBusy = true, status = "Loading model. First load can take several seconds...") }
         val result = runCatching {
-            val newEngine = LiteRtGemmaEngine(context.applicationContext, file.absolutePath)
+            val newEngine = LiteRtGemmaEngine(
+                context = context.applicationContext,
+                modelPath = file.absolutePath,
+                backendPreference = uiState.value.backendPreference,
+                speculativeDecodingEnabled = uiState.value.speculativeDecodingEnabled
+            )
             newEngine.load()
             engine.close()
             engine = newEngine

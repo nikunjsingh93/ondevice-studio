@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -55,9 +56,13 @@ fun SettingsScreen(
     chatFontScale: Float,
     codeFontScale: Float,
     contextSizeChars: Int,
+    backendPreference: String,
+    speculativeDecodingEnabled: Boolean,
     onChatFontScale: (Float) -> Unit,
     onCodeFontScale: (Float) -> Unit,
     onContextSizeChange: (Int) -> Unit,
+    onBackendPreferenceChange: (String) -> Unit,
+    onSpeculativeDecodingChange: (Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     var settingsSubPage by rememberSaveable { mutableStateOf("root") }
@@ -188,6 +193,32 @@ fun SettingsScreen(
                     Slider(value = chatFontScale, onValueChange = onChatFontScale, valueRange = 0.8f..1.8f)
                     Text("Code font size: ${"%.2f".format(Locale.US, codeFontScale)}x")
                     Slider(value = codeFontScale, onValueChange = onCodeFontScale, valueRange = 0.8f..1.8f)
+                    Text("Backend")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf("auto", "cpu", "gpu", "npu").forEach { option ->
+                            val selected = backendPreference == option
+                            OutlinedButton(
+                                onClick = { onBackendPreferenceChange(option) },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(if (selected) "✓ ${option.uppercase(Locale.US)}" else option.uppercase(Locale.US))
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Speculative decoding / MTP")
+                        Switch(
+                            checked = speculativeDecodingEnabled,
+                            onCheckedChange = onSpeculativeDecodingChange
+                        )
+                    }
                     HorizontalDivider()
                     OutlinedButton(onClick = { settingsSubPage = "privacy" }) {
                         Text("Open Privacy Policy")

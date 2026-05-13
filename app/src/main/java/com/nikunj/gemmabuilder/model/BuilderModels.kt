@@ -85,6 +85,8 @@ data class BuilderUiState(
     val chatFontScale: Float = 1.2f,
     val codeFontScale: Float = 1f,
     val contextSizeChars: Int = 24000,
+    val backendPreference: String = "auto",
+    val speculativeDecodingEnabled: Boolean = false,
     val estimatedFileContextChars: Int = 0,
     val pendingAttachments: List<String> = emptyList(),
     val generationMetrics: String? = null,
