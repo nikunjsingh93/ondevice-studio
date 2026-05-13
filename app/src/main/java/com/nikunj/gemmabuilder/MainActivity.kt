@@ -712,12 +712,12 @@ fun Header(
                 ) { Text("⋮", fontWeight = FontWeight.Bold) }
                 DropdownMenu(expanded = settingsOpen, onDismissRequest = { settingsOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text(if (state.modelReady) "Change model" else "Import model") },
-                        onClick = { settingsOpen = false; onImportModel() }
-                    )
-                    DropdownMenuItem(
                         text = { Text("Settings") },
                         onClick = { settingsOpen = false; onOpenSettings() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (state.modelReady) "Change model" else "Import model") },
+                        onClick = { settingsOpen = false; onImportModel() }
                     )
                     DropdownMenuItem(
                         text = { Text(if (themeMode == "system") "✓ System theme" else "System theme") },
