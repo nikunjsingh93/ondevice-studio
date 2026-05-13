@@ -706,10 +706,9 @@ fun Header(
                 Box(
                     modifier = Modifier
                         .size(38.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small)
                         .clickable { settingsOpen = true },
                     contentAlignment = Alignment.Center
-                ) { Text("⋮", fontWeight = FontWeight.Bold) }
+                ) { Text("︙", fontWeight = FontWeight.Bold) }
                 DropdownMenu(expanded = settingsOpen, onDismissRequest = { settingsOpen = false }) {
                     DropdownMenuItem(
                         text = { Text("Settings") },
