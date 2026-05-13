@@ -37,7 +37,8 @@ data class ChatMessage(
     val role: String,
     val text: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val attachments: List<String> = emptyList()
+    val attachments: List<String> = emptyList(),
+    val statsInline: String? = null
 )
 
 data class ChatConversation(
@@ -69,6 +70,7 @@ data class BuilderUiState(
     val modelReady: Boolean = false,
     val gemmaLoaded: Boolean = false,
     val isBusy: Boolean = false,
+    val canStopGeneration: Boolean = false,
     val previewVersion: Int = 0,
     val tab: Int = 0,
     val indexHtmlPath: String? = null,
@@ -82,7 +84,10 @@ data class BuilderUiState(
     val workPanelCollapsed: Boolean = false,
     val chatFontScale: Float = 1.2f,
     val codeFontScale: Float = 1f,
+    val contextSizeChars: Int = 24000,
+    val estimatedFileContextChars: Int = 0,
     val pendingAttachments: List<String> = emptyList(),
+    val generationMetrics: String? = null,
     val previewImagePath: String? = null
 )
 

@@ -43,17 +43,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun SettingsScreen(
     chatFontScale: Float,
     codeFontScale: Float,
+    contextSizeChars: Int,
     onChatFontScale: (Float) -> Unit,
     onCodeFontScale: (Float) -> Unit,
+    onContextSizeChange: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var settingsSubPage by rememberSaveable { mutableStateOf("root") }
@@ -65,6 +69,7 @@ fun SettingsScreen(
         val versionName = packageInfo.versionName ?: "unknown"
         "v$versionName"
     }
+    val uriHandler = LocalUriHandler.current
 
     BackHandler(onBack = {
         if (settingsSubPage != "root") settingsSubPage = "root" else onDismiss()
@@ -151,6 +156,34 @@ fun SettingsScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+                    val contextOptions = listOf(12000, 24000, 48000, 96000)
+                    val contextIndex = contextOptions.indexOf(contextSizeChars).let { if (it >= 0) it else 1 }
+                    Text("Context size: ${String.format(Locale.US, "%,d", contextSizeChars)} chars")
+                    Slider(
+                        value = contextIndex.toFloat(),
+                        onValueChange = { raw ->
+                            val idx = raw.roundToInt().coerceIn(0, contextOptions.lastIndex)
+                            onContextSizeChange(contextOptions[idx])
+                        },
+                        valueRange = 0f..contextOptions.lastIndex.toFloat(),
+                        steps = contextOptions.size - 2
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        contextOptions.forEach { value ->
+                            Text(
+                                text = "${value / 1000}k",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (value == contextSizeChars) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
                     Text("Chat font size: ${"%.2f".format(Locale.US, chatFontScale)}x")
                     Slider(value = chatFontScale, onValueChange = onChatFontScale, valueRange = 0.8f..1.8f)
                     Text("Code font size: ${"%.2f".format(Locale.US, codeFontScale)}x")
@@ -161,6 +194,9 @@ fun SettingsScreen(
                     }
                     OutlinedButton(onClick = { settingsSubPage = "licenses" }) {
                         Text("Open Third-Party Licenses")
+                    }
+                    OutlinedButton(onClick = { uriHandler.openUri("https://github.com/nikunjsingh93/ondevice-studio") }) {
+                        Text("Check for updates on GitHub")
                     }
                 }
             }

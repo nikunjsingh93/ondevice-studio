@@ -8,12 +8,14 @@ import androidx.lifecycle.viewModelScope
 import androidx.core.content.FileProvider
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.io.File
+import java.util.Locale
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -26,6 +28,7 @@ class BuilderViewModel : ViewModel() {
     private var prepared = false
     private var conversations: MutableList<ChatConversation> = mutableListOf()
     private var generationInProgress = false
+    private var generationJob: Job? = null
 
     fun prepare(context: Context) {
         if (prepared) return
@@ -54,6 +57,7 @@ class BuilderViewModel : ViewModel() {
                 modelReady = hasModel,
                 chatFontScale = savedChatFontScale(context),
                 codeFontScale = savedCodeFontScale(context),
+                contextSizeChars = savedContextSizeChars(context),
                 status = if (hasModel) "${savedModelName(context)} found. Type a message and tap Send to auto-load." else "Import a .litertlm model from the ⋮ menu."
             )
         }
@@ -71,6 +75,12 @@ class BuilderViewModel : ViewModel() {
     fun setCodeFontScale(context: Context, scale: Float) {
         saveCodeFontScale(context, scale)
         _uiState.update { it.copy(codeFontScale = scale) }
+    }
+
+    fun setContextSizeChars(context: Context, contextSizeChars: Int) {
+        saveContextSizeChars(context, contextSizeChars)
+        _uiState.update { it.copy(contextSizeChars = savedContextSizeChars(context)) }
+        refreshWorkspace(context)
     }
 
     fun newConversation(context: Context) {
@@ -207,6 +217,18 @@ class BuilderViewModel : ViewModel() {
 
     fun importModel(context: Context, uri: Uri) {
         viewModelScope.launch {
+            val importedName = displayNameForUri(context.contentResolver, uri).ifBlank { "Gemma model" }
+            val isLiteRtLm = importedName.lowercase(Locale.US).endsWith(".litertlm")
+            if (!isLiteRtLm) {
+                _uiState.update {
+                    it.copy(
+                        isBusy = false,
+                        status = "Only .litertlm models are supported. Selected: $importedName",
+                        messages = it.messages + ChatMessage("assistant", "Model import blocked: only .litertlm files are allowed. Selected: $importedName")
+                    )
+                }
+                return@launch
+            }
             _uiState.update {
                 it.copy(
                     isBusy = true,
@@ -214,7 +236,6 @@ class BuilderViewModel : ViewModel() {
                     messages = it.messages + ChatMessage("assistant", "Importing model into app storage...")
                 )
             }
-            val importedName = displayNameForUri(context.contentResolver, uri).ifBlank { "Gemma model" }
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     copyModel(context.contentResolver, uri, modelFile(context))
@@ -364,7 +385,7 @@ class BuilderViewModel : ViewModel() {
         if (prompt.isBlank() || uiState.value.isBusy || generationInProgress) return
         generationInProgress = true
 
-        viewModelScope.launch {
+        generationJob = viewModelScope.launch {
             try {
                 if (!uiState.value.modelReady) {
                     _uiState.update { it.copy(status = "Import a .litertlm model from the ⋮ menu first.") }
@@ -387,17 +408,21 @@ class BuilderViewModel : ViewModel() {
                 _uiState.update {
                     it.copy(
                         isBusy = true,
+                        canStopGeneration = true,
                         prompt = "",
                         status = "Thinking...",
                         messages = pendingMessages,
                         streamingCode = "",
                         lastRawResponse = "",
                         tab = 1,
+                        generationMetrics = null,
                         pendingAttachments = emptyList(),
                         activeRoutingMode = if (multimodalRoute) "multimodal" else "text"
                     )
                 }
                 persistActiveConversation(context, pendingMessages)
+                val generationStartedAtMs = System.currentTimeMillis()
+                var firstTokenAtMs: Long? = null
 
                 if (multimodalRoute) {
                     val multimodalReply = withContext(Dispatchers.IO) {
@@ -408,7 +433,8 @@ class BuilderViewModel : ViewModel() {
                         ).orEmpty()
                     }
                     if (multimodalReply.isNotBlank()) {
-                        val assistantMessage = ChatMessage("assistant", multimodalReply)
+                        val metrics = buildGenerationMetrics(generationStartedAtMs, firstTokenAtMs)
+                        val assistantMessage = ChatMessage("assistant", multimodalReply, statsInline = metrics)
                         val finalMessages = uiState.value.messages + assistantMessage
                         persistActiveConversation(context, finalMessages)
                         _uiState.update {
@@ -418,7 +444,8 @@ class BuilderViewModel : ViewModel() {
                                 messages = finalMessages,
                                 streamingCode = "",
                                 lastRawResponse = multimodalReply,
-                                tab = 0
+                                tab = 0,
+                                generationMetrics = metrics
                             )
                         }
                         return@launch
@@ -458,6 +485,9 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
 
                     val result = runCatching {
                         engine.generate(attemptPrompt).collect { chunk ->
+                            if (firstTokenAtMs == null && chunk.isNotBlank()) {
+                                firstTokenAtMs = System.currentTimeMillis()
+                            }
                             output.append(chunk)
                             val now = System.currentTimeMillis()
                             if (now - lastUiUpdate > 220L || output.length < 1000) {
@@ -501,8 +531,9 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                 }
 
                 if (actions.isEmpty() && !assistantReply.isNullOrBlank()) {
+                    val metrics = buildGenerationMetrics(generationStartedAtMs, firstTokenAtMs)
                     val reply = assistantReply!!.trim()
-                    val finalMessages = uiState.value.messages + ChatMessage("assistant", reply)
+                    val finalMessages = uiState.value.messages + ChatMessage("assistant", reply, statsInline = metrics)
                     persistActiveConversation(context, finalMessages)
                     _uiState.update {
                         it.copy(
@@ -511,19 +542,21 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                             lastRawResponse = responseText,
                             streamingCode = "",
                             messages = finalMessages,
-                            tab = 0
+                            tab = 0,
+                            generationMetrics = metrics
                         )
                     }
                     return@launch
                 }
 
                 if (actions.isEmpty() || actions.any { !isCompleteEnoughForWriting(it) }) {
+                    val metrics = buildGenerationMetrics(generationStartedAtMs, firstTokenAtMs)
                     val message = if (lastError != null) {
                         "Generation failed after 3 retries. The previous working project was kept. Try a shorter request."
                     } else {
                         "The model stopped before finishing write actions after 3 retries. The previous working project was kept. Try asking for a shorter complete rewrite."
                     }
-                    val finalMessages = uiState.value.messages + ChatMessage("assistant", message)
+                    val finalMessages = uiState.value.messages + ChatMessage("assistant", message, statsInline = metrics)
                     persistActiveConversation(context, finalMessages)
                     _uiState.update {
                         it.copy(
@@ -532,7 +565,8 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                             lastRawResponse = responseText,
                             streamingCode = "",
                             messages = finalMessages,
-                            tab = 1
+                            tab = 1,
+                            generationMetrics = metrics
                         )
                     }
                     return@launch
@@ -546,9 +580,10 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                 }
 
                 if (written.isSuccess) {
+                    val metrics = buildGenerationMetrics(generationStartedAtMs, firstTokenAtMs)
                     refreshWorkspace(context)
                     val assistantText = assistantReply?.takeIf { it.isNotBlank() }?.trim() ?: "Updated preview."
-                    val assistantMessage = ChatMessage("assistant", assistantText)
+                    val assistantMessage = ChatMessage("assistant", assistantText, statsInline = metrics)
                     val finalMessages = uiState.value.messages + assistantMessage
                     val preferredPath = actions.firstOrNull { it.path.equals("index.html", ignoreCase = true) }?.path
                         ?: actions.firstOrNull()?.path
@@ -565,11 +600,13 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                             lastRawResponse = responseText,
                             streamingCode = "",
                             messages = finalMessages,
-                            conversations = conversationInfos()
+                            conversations = conversationInfos(),
+                            generationMetrics = metrics
                         )
                     }
                 } else {
-                    val finalMessages = uiState.value.messages + ChatMessage("assistant", "I generated a complete file, but the app could not save it.")
+                    val metrics = buildGenerationMetrics(generationStartedAtMs, firstTokenAtMs)
+                    val finalMessages = uiState.value.messages + ChatMessage("assistant", "I generated a complete file, but the app could not save it.", statsInline = metrics)
                     persistActiveConversation(context, finalMessages)
                     _uiState.update {
                         it.copy(
@@ -577,13 +614,31 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                             status = "Could not write files: ${written.exceptionOrNull()?.message ?: "unknown error"}",
                             lastRawResponse = responseText,
                             streamingCode = "",
-                            messages = finalMessages
+                            messages = finalMessages,
+                            generationMetrics = metrics
                         )
                     }
                 }
             } finally {
                 generationInProgress = false
-                _uiState.update { it.copy(isBusy = false) }
+                generationJob = null
+                _uiState.update { it.copy(isBusy = false, canStopGeneration = false) }
+            }
+        }
+    }
+
+    fun stopGeneration() {
+        val job = generationJob
+        if (job != null && job.isActive) {
+            job.cancel()
+            generationInProgress = false
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    canStopGeneration = false,
+                    status = "Stopped.",
+                    streamingCode = ""
+                )
             }
         }
     }
@@ -701,12 +756,17 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
         }
         val current = runCatching { safeResolve(root, effectivePath).readText() }.getOrDefault("")
         val modelNameNow = savedModelName(context)
+        val estimatedFileContextChars = estimateFileContextChars(
+            root = root,
+            maxTotalChars = uiState.value.contextSizeChars
+        )
         _uiState.update {
             it.copy(
                 indexHtmlPath = index.absolutePath,
                 selectedCodePath = effectivePath,
                 currentCode = current,
                 files = files,
+                estimatedFileContextChars = estimatedFileContextChars,
                 modelName = modelNameNow,
                 modelSupportsMultimodal = isLikelyMultimodalModel(modelNameNow),
                 multimodalBackendReady = multimodalEngine?.isReady() == true,
@@ -714,6 +774,46 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
             )
         }
     }
+
+    private fun estimateFileContextChars(root: File, maxTotalChars: Int): Int {
+        val perFileLimit = 5000
+        var total = 0
+        val files = root.walkTopDown()
+            .filter { it.isFile }
+            .map { it.relativeTo(root).path.replace('\\', '/') to it }
+            .filter { (path, _) -> !path.equals("index.html", ignoreCase = true) }
+            .toList()
+        if (files.isEmpty()) return 0
+
+        // Mirror buildProjectContextForModel framing overhead for a closer estimate.
+        files.forEach { (path, file) ->
+            if (total >= maxTotalChars) return@forEach
+            val ext = path.substringAfterLast('.', "").lowercase(Locale.US)
+            val bodyChars = when {
+                vmIsTextExtension(ext) -> minOf(file.length().coerceAtMost(Int.MAX_VALUE.toLong()).toInt(), perFileLimit)
+                ext == "docx" || ext == "pdf" || vmIsImageExtension(ext) || vmIsAudioExtension(ext) -> 600
+                else -> 0
+            }
+            if (bodyChars <= 0) return@forEach
+            val wrapped = bodyChars + path.length + 28 // <<<FILE:path>>> + <<<END_FILE>>> + newlines
+            val remaining = maxTotalChars - total
+            total += minOf(wrapped, remaining)
+        }
+        return total.coerceAtMost(maxTotalChars)
+    }
+
+    private fun vmIsTextExtension(ext: String): Boolean = ext in setOf(
+        "txt", "md", "json", "js", "mjs", "ts", "tsx", "jsx", "css", "scss", "sass",
+        "html", "htm", "xml", "csv", "tsv", "yaml", "yml", "toml", "ini", "log"
+    )
+
+    private fun vmIsImageExtension(ext: String): Boolean = ext in setOf(
+        "png", "jpg", "jpeg", "webp", "bmp", "gif", "heic", "heif"
+    )
+
+    private fun vmIsAudioExtension(ext: String): Boolean = ext in setOf(
+        "mp3", "wav", "m4a", "aac", "ogg", "opus", "flac", "3gp", "amr"
+    )
 
     private suspend fun buildPrompt(
         context: Context,
@@ -727,7 +827,8 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
             context = context,
             root = root,
             preferredPaths = preferredAttachmentPaths,
-            onlyPreferredWhenProvided = preferredAttachmentPaths.isNotEmpty()
+            onlyPreferredWhenProvided = preferredAttachmentPaths.isNotEmpty(),
+            maxTotalChars = uiState.value.contextSizeChars
         )
         val multimodalHint = if (uiState.value.modelSupportsMultimodal) {
             "Model capability routing: multimodal-capable model detected. Prioritize attached image/audio understanding first, then use extracted file text."
@@ -787,6 +888,14 @@ Return the XML action(s) now.
         conversations = (conversations.filterNot { it.id == id } + updated).sortedByDescending { it.updatedAt }.toMutableList()
         saveConversationFile(context, updated)
         _uiState.update { it.copy(conversations = conversationInfos(), activeConversationId = id, messages = messages) }
+    }
+
+    private fun buildGenerationMetrics(startedAtMs: Long, firstTokenAtMs: Long?): String {
+        val elapsedMs = (System.currentTimeMillis() - startedAtMs).coerceAtLeast(1L)
+        val elapsedSec = elapsedMs / 1000.0
+        val ttftMs = (firstTokenAtMs?.minus(startedAtMs) ?: elapsedMs).coerceAtLeast(1L)
+        val ttftSec = ttftMs / 1000.0
+        return "• ${String.format(Locale.US, "%.2f", elapsedSec)}s • ~${String.format(Locale.US, "%.2f", ttftSec)}s TTFT"
     }
 
     private fun conversationInfos(): List<ConversationInfo> = conversations

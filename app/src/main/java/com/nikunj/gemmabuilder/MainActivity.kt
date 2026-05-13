@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -331,6 +332,7 @@ fun BuilderApp(
                 onImportFiles = { fileImporter.launch(arrayOf("*/*")) },
                 onPromptChange = vm::setPrompt,
                 onGenerate = { vm.generate(context.applicationContext) },
+                onStopGenerate = { vm.stopGeneration() },
                 onOpenImagePreview = { relativePath -> vm.openImagePreview(context.applicationContext, relativePath) },
                 onTab = vm::setTab,
                 onRefresh = { vm.reloadPreview() },
@@ -349,8 +351,10 @@ fun BuilderApp(
                 SettingsScreen(
                     chatFontScale = state.chatFontScale,
                     codeFontScale = state.codeFontScale,
+                    contextSizeChars = state.contextSizeChars,
                     onChatFontScale = { vm.setChatFontScale(context.applicationContext, it) },
                     onCodeFontScale = { vm.setCodeFontScale(context.applicationContext, it) },
+                    onContextSizeChange = { vm.setContextSizeChars(context.applicationContext, it) },
                     onDismiss = { settingsScreenOpen = false }
                 )
             }
@@ -399,6 +403,7 @@ fun MainBuilderContent(
     onImportFiles: () -> Unit,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
+    onStopGenerate: () -> Unit,
     onOpenImagePreview: (String) -> Unit,
     onTab: (Int) -> Unit,
     onRefresh: () -> Unit,
@@ -460,6 +465,7 @@ fun MainBuilderContent(
                     state = state,
                     onPromptChange = onPromptChange,
                     onGenerate = onGenerate,
+                    onStopGenerate = onStopGenerate,
                     onAddFiles = onImportFiles,
                     onOpenImagePreview = onOpenImagePreview,
                     chatFontScale = state.chatFontScale,
@@ -505,6 +511,7 @@ fun MainBuilderContent(
                             state = state,
                             onPromptChange = onPromptChange,
                             onGenerate = onGenerate,
+                            onStopGenerate = onStopGenerate,
                             onAddFiles = onImportFiles,
                             onOpenImagePreview = onOpenImagePreview,
                             chatFontScale = state.chatFontScale,
@@ -535,6 +542,7 @@ fun MainBuilderContent(
                         state = state,
                         onPromptChange = onPromptChange,
                         onGenerate = onGenerate,
+                        onStopGenerate = onStopGenerate,
                         onAddFiles = onImportFiles,
                         onOpenImagePreview = onOpenImagePreview,
                         chatFontScale = state.chatFontScale,
@@ -839,6 +847,7 @@ fun ChatPanel(
     state: BuilderUiState,
     onPromptChange: (String) -> Unit,
     onGenerate: () -> Unit,
+    onStopGenerate: () -> Unit,
     onAddFiles: () -> Unit,
     onOpenImagePreview: (String) -> Unit,
     chatFontScale: Float,
@@ -953,11 +962,17 @@ fun ChatPanel(
                     keyboardActions = KeyboardActions(onSend = { if (!state.isBusy && state.prompt.isNotBlank() && state.modelReady) onGenerate() })
                 )
                 Button(
-                    onClick = onGenerate,
+                    onClick = if (state.canStopGeneration) onStopGenerate else onGenerate,
                     modifier = Modifier.size(54.dp),
-                    enabled = state.prompt.isNotBlank() && !state.isBusy && state.modelReady
+                    enabled = if (state.canStopGeneration) true else (state.prompt.isNotBlank() && !state.isBusy && state.modelReady)
                 ) {
-                    Text("➤", fontWeight = FontWeight.Bold)
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            if (state.canStopGeneration) "■" else "➤",
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.offset(x = (-2).dp)
+                        )
+                    }
                 }
             }
         }
@@ -1003,7 +1018,7 @@ fun MessageBubble(message: ChatMessage, chatFontScale: Float, onOpenImagePreview
             )
             Spacer(Modifier.height(2.dp))
             Text(
-                text = formatChatTimestamp(message.timestamp),
+                text = formatMessageMeta(message),
                 style = MaterialTheme.typography.labelSmall,
                 color = metaColor
             )
@@ -1018,7 +1033,7 @@ fun MessageBubble(message: ChatMessage, chatFontScale: Float, onOpenImagePreview
         ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = formatChatTimestamp(message.timestamp),
+                text = formatMessageMeta(message),
                 style = MaterialTheme.typography.labelSmall,
                 color = metaColor,
                 modifier = Modifier.weight(1f)
@@ -1054,6 +1069,12 @@ fun MessageBubble(message: ChatMessage, chatFontScale: Float, onOpenImagePreview
         }
         }
     }
+}
+
+private fun formatMessageMeta(message: ChatMessage): String {
+    val time = formatChatTimestamp(message.timestamp)
+    val stats = message.statsInline?.trim().orEmpty()
+    return if (stats.isBlank()) time else "$time $stats"
 }
 
 @Composable
@@ -1889,7 +1910,8 @@ suspend fun buildProjectContextForModel(
     context: Context,
     root: File,
     preferredPaths: List<String> = emptyList(),
-    onlyPreferredWhenProvided: Boolean = false
+    onlyPreferredWhenProvided: Boolean = false,
+    maxTotalChars: Int = 24000
 ): String {
     val files = root.walkTopDown()
         .filter { it.isFile }
@@ -1899,7 +1921,6 @@ suspend fun buildProjectContextForModel(
 
     if (files.isEmpty()) return "(none)"
 
-    val maxTotalChars = 24000
     val perFileLimit = 5000
     val out = StringBuilder()
 

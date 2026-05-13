@@ -38,19 +38,21 @@ fun readConversationFile(file: File): ChatConversation {
             line.startsWith("title\t") -> title = decodeText(line.substringAfter("title\t"))
             line.startsWith("updated\t") -> updatedAt = line.substringAfter("updated\t").toLongOrNull() ?: updatedAt
             line.startsWith("msg	") -> {
-                val parts = line.split("	", limit = 5)
+                val parts = line.split("	", limit = 6)
                 when {
                     parts.size >= 5 -> {
                         val attachments = decodeText(parts[4])
                             .split('|')
                             .map { it.trim() }
                             .filter { it.isNotBlank() }
+                        val statsInline = parts.getOrNull(5)?.let(::decodeText)?.takeIf { it.isNotBlank() }
                         messages.add(
                             ChatMessage(
                                 role = parts[1],
                                 text = decodeText(parts[3]),
                                 timestamp = parts[2].toLongOrNull() ?: updatedAt,
-                                attachments = attachments
+                                attachments = attachments,
+                                statsInline = statsInline
                             )
                         )
                     }
@@ -72,7 +74,8 @@ fun saveConversationFile(context: Context, conversation: ChatConversation) {
         appendLine("updated\t${conversation.updatedAt}")
         conversation.messages.forEach { msg ->
             val attachmentsEncoded = encodeText(msg.attachments.joinToString("|"))
-            appendLine("msg\t${msg.role}\t${msg.timestamp}\t${encodeText(msg.text)}\t$attachmentsEncoded")
+            val statsEncoded = encodeText(msg.statsInline.orEmpty())
+            appendLine("msg\t${msg.role}\t${msg.timestamp}\t${encodeText(msg.text)}\t$attachmentsEncoded\t$statsEncoded")
         }
     }
     file.writeText(text)
@@ -88,5 +91,4 @@ fun formatChatTimestamp(timestamp: Long): String {
     val pattern = if (sameDay) "h:mm a" else if (then.get(Calendar.YEAR) == now.get(Calendar.YEAR)) "MMM d" else "MMM d, yyyy"
     return SimpleDateFormat(pattern, Locale.US).format(Date(timestamp))
 }
-
 

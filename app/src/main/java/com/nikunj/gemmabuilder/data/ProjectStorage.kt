@@ -93,6 +93,22 @@ fun saveCodeFontScale(context: Context, scale: Float) {
         .apply()
 }
 
+fun savedContextSizeChars(context: Context): Int {
+    val allowed = setOf(12000, 24000, 48000, 96000)
+    val value = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .getInt("contextSizeChars", 24000)
+    return if (value in allowed) value else 24000
+}
+
+fun saveContextSizeChars(context: Context, contextSizeChars: Int) {
+    val allowed = setOf(12000, 24000, 48000, 96000)
+    val normalized = if (contextSizeChars in allowed) contextSizeChars else 24000
+    context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        .edit()
+        .putInt("contextSizeChars", normalized)
+        .apply()
+}
+
 fun displayNameForUri(resolver: ContentResolver, uri: Uri, fallback: String = "Gemma model"): String {
     resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
         val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -112,4 +128,3 @@ fun copyModel(resolver: ContentResolver, uri: Uri, outFile: File) {
         outFile.outputStream().use { output -> input.copyTo(output) }
     }
 }
-
