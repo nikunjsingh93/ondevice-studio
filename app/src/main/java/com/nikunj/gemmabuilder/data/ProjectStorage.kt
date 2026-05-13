@@ -111,15 +111,15 @@ fun saveContextSizeChars(context: Context, contextSizeChars: Int) {
 
 fun savedBackendPreference(context: Context): String =
     context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-        .getString("backendPreference", "auto")
+        .getString("backendPreference", "cpu")
         ?.lowercase(Locale.US)
-        ?.takeIf { it in setOf("auto", "cpu", "gpu", "npu") }
-        ?: "auto"
+        ?.takeIf { it in setOf("cpu", "gpu", "npu") }
+        ?: "cpu"
 
 fun saveBackendPreference(context: Context, backendPreference: String) {
     val normalized = backendPreference.lowercase(Locale.US).takeIf {
-        it in setOf("auto", "cpu", "gpu", "npu")
-    } ?: "auto"
+        it in setOf("cpu", "gpu", "npu")
+    } ?: "cpu"
     context.getSharedPreferences("settings", Context.MODE_PRIVATE)
         .edit()
         .putString("backendPreference", normalized)

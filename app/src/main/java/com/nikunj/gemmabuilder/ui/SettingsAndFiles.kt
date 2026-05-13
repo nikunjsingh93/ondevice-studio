@@ -198,7 +198,7 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf("auto", "cpu", "gpu", "npu").forEach { option ->
+                        listOf("cpu", "gpu", "npu").forEach { option ->
                             val selected = backendPreference == option
                             OutlinedButton(
                                 onClick = { onBackendPreferenceChange(option) },

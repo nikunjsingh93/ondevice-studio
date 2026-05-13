@@ -1475,7 +1475,7 @@ class LiteRtGemmaEngine(
             "cpu" -> Backend.CPU()
             "gpu" -> Backend.GPU()
             "npu" -> Backend.NPU(nativeLibraryDir = context.applicationInfo.nativeLibraryDir)
-            else -> Backend.GPU()
+            else -> Backend.CPU()
         }) ?: Backend.CPU()
         val config = EngineConfig(
             modelPath = modelPath,
