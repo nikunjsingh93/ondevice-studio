@@ -502,7 +502,7 @@ class BuilderViewModel : ViewModel() {
 $basePrompt
 
 RETRY ATTEMPT $attempt OF $maxAttempts:
-Your previous response was incomplete. Return complete XML write_file action(s) only, with every opened tag properly closed (including </content> and </action>). Do not stream explanations.
+Your previous response was incomplete. If the user asked a question, return one complete XML reply action. If file changes are needed, return complete XML write_file action(s). Close every opened tag, including </content> and </action>. Do not stream explanations outside XML.
                         """.trimIndent()
                     }
 
@@ -539,7 +539,11 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                         if (attempt < maxAttempts) continue
                     }
 
-                    responseText = output.toString()
+                    responseText = continueRawResponseIfNeeded(
+                        initialResponse = output.toString(),
+                        firstTokenAtMs = { firstTokenAtMs },
+                        setFirstTokenAtMs = { firstTokenAtMs = it }
+                    )
                     _uiState.update {
                         it.copy(
                             status = "Checking generated file...",
@@ -548,7 +552,18 @@ Your previous response was incomplete. Return complete XML write_file action(s) 
                         )
                     }
                     actions = normalizeWriteActions(recoverWriteFileActions(responseText))
-                    assistantReply = recoverAssistantReply(responseText)
+                    val recoveredReply = if (actions.isEmpty()) recoverAssistantReplyContent(responseText) else null
+                    assistantReply = if (recoveredReply != null) {
+                        continueAssistantReplyIfNeeded(
+                            initialReply = recoveredReply,
+                            fullResponse = responseText,
+                            updateResponse = { responseText = it },
+                            firstTokenAtMs = { firstTokenAtMs },
+                            setFirstTokenAtMs = { firstTokenAtMs = it }
+                        )
+                    } else {
+                        recoverAssistantReply(responseText)
+                    }
                     if (actions.isNotEmpty() && actions.all { isCompleteEnoughForWriting(it) }) {
                         break
                     }
@@ -891,6 +906,190 @@ $userRequest
 
 Return the XML action(s) now.
         """.trimIndent()
+    }
+
+    private suspend fun continueAssistantReplyIfNeeded(
+        initialReply: AssistantReplyContent,
+        fullResponse: String,
+        updateResponse: (String) -> Unit,
+        firstTokenAtMs: () -> Long?,
+        setFirstTokenAtMs: (Long) -> Unit
+    ): String {
+        var reply = initialReply.text
+        var combinedResponse = fullResponse
+        var complete = initialReply.complete
+        var continuation = 1
+        val maxContinuations = 3
+
+        while (!complete && continuation <= maxContinuations) {
+            _uiState.update {
+                it.copy(
+                    status = "Continuing answer... ${continuation}/$maxContinuations",
+                    streamingCode = ""
+                )
+            }
+            val prompt = """
+The previous reply was cut off before the XML action closed.
+
+Previous reply content so far:
+${reply.takeLast(4000)}
+
+Continue exactly where that reply stopped. Return one reply action containing only the remaining continuation text. Do not repeat the previous content. Close with </content> and </action> when finished.
+            """.trimIndent()
+            val output = StringBuilder()
+            var lastUiUpdate = 0L
+            val result = runCatching {
+                engine.generate(prompt).collect { chunk ->
+                    if (firstTokenAtMs() == null && chunk.isNotBlank()) {
+                        setFirstTokenAtMs(System.currentTimeMillis())
+                    }
+                    output.append(chunk)
+                    val now = System.currentTimeMillis()
+                    if (now - lastUiUpdate > 220L || output.length < 1000) {
+                        lastUiUpdate = now
+                        val streamed = "$combinedResponse\n${output}"
+                        _uiState.update {
+                            it.copy(
+                                status = "Continuing answer... ${continuation}/$maxContinuations • +${output.length} chars",
+                                lastRawResponse = streamed,
+                                streamingCode = ""
+                            )
+                        }
+                    }
+                }
+            }
+            if (result.isFailure) break
+
+            val continuationResponse = output.toString()
+            if (continuationResponse.isBlank()) break
+            combinedResponse = "$combinedResponse\n$continuationResponse"
+            updateResponse(combinedResponse)
+
+            val recovered = recoverAssistantReplyContent(continuationResponse)
+            val continuationText = recovered?.text ?: cleanGeneratedFileContent(continuationResponse)
+            val merged = appendReplyContinuation(reply, continuationText)
+            if (merged == reply) break
+            reply = merged
+            complete = recovered?.complete ?: true
+            continuation += 1
+        }
+
+        return reply
+    }
+
+    private fun appendReplyContinuation(current: String, continuation: String): String {
+        val next = continuation.trim()
+        if (next.isBlank()) return current
+        if (current.contains(next)) return current
+
+        val overlap = minOf(current.length, next.length, 500)
+            .downTo(20)
+            .firstOrNull { size -> current.takeLast(size) == next.take(size) }
+            ?: 0
+        val suffix = next.drop(overlap).trimStart()
+        if (suffix.isBlank()) return current
+        return current.trimEnd() + "\n" + suffix
+    }
+
+    private suspend fun continueRawResponseIfNeeded(
+        initialResponse: String,
+        firstTokenAtMs: () -> Long?,
+        setFirstTokenAtMs: (Long) -> Unit
+    ): String {
+        var response = initialResponse
+        var continuation = 1
+        val maxContinuations = 6
+
+        while (looksCutOff(response) && continuation <= maxContinuations) {
+            _uiState.update {
+                it.copy(
+                    status = "Continuing output... ${continuation}/$maxContinuations",
+                    lastRawResponse = response,
+                    streamingCode = extractStreamingCode(response)
+                )
+            }
+
+            val prompt = """
+Your previous response was cut off because the Android runtime stopped the generation.
+
+Continue from the exact next character after this ending:
+${response.takeLast(3500)}
+
+Rules:
+- Do not restart.
+- Do not repeat previous text.
+- If an XML action is open, continue inside that same action and close it when finished.
+- Output only the missing continuation text.
+            """.trimIndent()
+            val output = StringBuilder()
+            var lastUiUpdate = 0L
+            val result = runCatching {
+                engine.generate(prompt).collect { chunk ->
+                    if (firstTokenAtMs() == null && chunk.isNotBlank()) {
+                        setFirstTokenAtMs(System.currentTimeMillis())
+                    }
+                    output.append(chunk)
+                    val now = System.currentTimeMillis()
+                    if (now - lastUiUpdate > 220L || output.length < 1000) {
+                        lastUiUpdate = now
+                        val preview = appendRawContinuation(response, output.toString())
+                        _uiState.update {
+                            it.copy(
+                                status = "Continuing output... ${continuation}/$maxContinuations • ${preview.length} chars",
+                                lastRawResponse = preview,
+                                streamingCode = extractStreamingCode(preview)
+                            )
+                        }
+                    }
+                }
+            }
+            if (result.isFailure) break
+
+            val continued = appendRawContinuation(response, output.toString())
+            if (continued.length <= response.length) break
+            response = continued
+            continuation += 1
+        }
+
+        return response
+    }
+
+    private fun looksCutOff(text: String): Boolean {
+        val trimmed = text.trimEnd()
+        if (trimmed.length < 5000) return false
+        if (trimmed.endsWith("</action>", ignoreCase = true)) return false
+        if (recoverAssistantReplyContent(trimmed)?.complete == false) return true
+        if (trimmed.contains("<action", ignoreCase = true)) return true
+        val recovered = recoverWriteFileActions(trimmed)
+        return recovered.isNotEmpty() && recovered.any { !isCompleteEnoughForWriting(it) }
+    }
+
+    private fun appendRawContinuation(current: String, continuation: String): String {
+        val cleaned = cleanRawContinuationForOpenAction(current, continuation).trimStart()
+        if (cleaned.isBlank()) return current
+
+        val overlap = minOf(current.length, cleaned.length, 1000)
+            .downTo(20)
+            .firstOrNull { size -> current.takeLast(size) == cleaned.take(size) }
+            ?: 0
+        val suffix = cleaned.drop(overlap)
+        if (suffix.isBlank()) return current
+        return current + suffix
+    }
+
+    private fun cleanRawContinuationForOpenAction(current: String, continuation: String): String {
+        var next = continuation.trimStart()
+        if (!current.contains("<action", ignoreCase = true) || current.trimEnd().endsWith("</action>", ignoreCase = true)) {
+            return next
+        }
+
+        val contentMatch = Regex(
+            pattern = """(?is)^<action\s+name=["'](?:write_file|reply)["']>\s*(?:<path>.*?</path>\s*)?<content>"""
+        ).find(next)
+        if (contentMatch != null) {
+            next = next.substring(contentMatch.range.last + 1)
+        }
+        return next
     }
 
     private fun persistActiveConversation(context: Context, messages: List<ChatMessage>) {

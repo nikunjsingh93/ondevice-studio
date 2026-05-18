@@ -1594,17 +1594,38 @@ fun recoverWriteFileActions(text: String): List<WriteFileAction> {
 }
 
 fun recoverAssistantReply(text: String): String? {
-    val replyAction = Regex(
+    return recoverAssistantReplyContent(text)?.text
+}
+
+data class AssistantReplyContent(val text: String, val complete: Boolean)
+
+fun recoverAssistantReplyContent(text: String): AssistantReplyContent? {
+    val completeReply = Regex(
         pattern = """<action\s+name=["']reply["']>\s*<content>(.*?)</content>\s*</action>""",
         options = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
     ).find(text)?.groupValues?.getOrNull(1)?.trim()
-    if (!replyAction.isNullOrBlank()) return cleanGeneratedFileContent(replyAction)
+    if (!completeReply.isNullOrBlank()) {
+        return AssistantReplyContent(cleanGeneratedFileContent(completeReply), complete = true)
+    }
+
+    val openReply = Regex(
+        pattern = """<action\s+name=["']reply["']>\s*<content>(.*)""",
+        options = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+    ).find(text)?.groupValues?.getOrNull(1)?.trim()
+    if (!openReply.isNullOrBlank()) {
+        val contentEnd = openReply.indexOf("</content>", ignoreCase = true)
+        val partial = if (contentEnd >= 0) openReply.take(contentEnd) else openReply
+        val cleaned = cleanGeneratedFileContent(partial)
+        if (cleaned.isNotBlank()) return AssistantReplyContent(cleaned, complete = contentEnd >= 0)
+    }
 
     val stripped = text
         .replace(Regex("""<action\s+name=["']write_file["'][\s\S]*?</action>""", RegexOption.IGNORE_CASE), "")
         .replace(Regex("""<action\s+name=["']reply["'][\s\S]*?</action>""", RegexOption.IGNORE_CASE), "")
         .trim()
-    return stripped.takeIf { it.isNotBlank() && !it.startsWith("<action", ignoreCase = true) }
+    return stripped
+        .takeIf { it.isNotBlank() && !it.startsWith("<action", ignoreCase = true) }
+        ?.let { AssistantReplyContent(it, complete = true) }
 }
 
 @Composable
